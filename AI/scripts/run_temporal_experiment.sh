@@ -41,13 +41,20 @@ if [ ! -f "$DATASET/preparation_report.json" ]; then
 fi
 
 WEIGHTS=AI/models/runs/$NAME/weights/best.pt
+# P2 was fine-tuned from this fold-0 base checkpoint; reusing it on other folds would leak
+# fold 0's training sequences into their val sets (see AI/BENCHMARK.md).
+INIT=${INIT:-AI/checkpoints/thermal_mega_medium_crop_fold0_best.pt}
+if [ "${FOLD#fold_}" != 0 ] && [ -z "${INIT_OVERRIDE:-}" ]; then
+  echo "Fold ${FOLD#fold_} needs its own base checkpoint: set INIT=... and INIT_OVERRIDE=1" >&2
+  exit 2
+fi
 if [ ! -f "$WEIGHTS" ]; then
   # Same recipe as thermal_medium_range_yolo26s_p2, except hue/saturation jitter is off:
   # the channels are frames in time, and colour jitter would mix them.
   "$PYTHON" -m AI.scripts.train \
     --data "$DATA" \
     --model yolo26s-p2.yaml \
-    --pretrained-weights yolo26s.pt \
+    --pretrained-weights "$INIT" \
     --name "$NAME" \
     --project AI/models/runs \
     --device "$DEVICE" \
@@ -55,6 +62,7 @@ if [ ! -f "$WEIGHTS" ]; then
     --optimizer AdamW --lr0 0.001 \
     --scale 0.25 --mosaic 0 --mixup 0 \
     --hsv-h 0 --hsv-s 0 --hsv-v 0.4 \
+    --epoch-fraction 0.20 \
     --selection-metric presence_f1 --presence-conf 0.40 \
     --seed 26
 fi
