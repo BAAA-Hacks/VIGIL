@@ -228,7 +228,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--weights",
         type=Path,
-        default=Path("AI/checkpoints/thermal_mega_medium_crop_fold0_best.pt"),
+        default=Path("AI/checkpoints/thermal_medium_range_yolo26s_p2_best.pt"),
     )
     parser.add_argument("--camera-url", default="http://192.168.4.1")
     parser.add_argument("--socket-url", help="Website Socket.IO URL; omit for JSON-lines stdout")
@@ -237,7 +237,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--detection-event", default="vigil:detection")
     parser.add_argument("--device", default="0")
     parser.add_argument("--imgsz", type=int, default=640)
-    parser.add_argument("--conf", type=float, default=0.40)
+    parser.add_argument("--conf", type=float, default=0.30)
     parser.add_argument("--iou", type=float, default=0.70)
     parser.add_argument("--tracker", default="bytetrack.yaml")
     parser.add_argument("--person-class", default="person")
