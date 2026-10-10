@@ -8,14 +8,7 @@ import { MissionShapeLayer } from "./missionShapeLayer";
 import type { PathShape } from "./missionPath";
 import { TEMPERATURE_STATUS } from "./temperatureStatus";
 
-const tileUrl = (view: MapView) => {
-  const service = {
-    satellite: "World_Imagery",
-    topographic: "World_Topo_Map",
-    street: "World_Street_Map",
-  }[view];
-  return `https://server.arcgisonline.com/ArcGIS/rest/services/${service}/MapServer/tile/{z}/{y}/{x}`;
-};
+const tileUrl = (view: MapView) => `/api/map-tiles/${view}/{z}/{x}/{y}`;
 
 function popup(name: string, coordinates: string, detail: string) {
   const content = document.createElement("div");
@@ -67,7 +60,7 @@ export class PersonMapController {
       zoomControl: false,
       zoomSnap: 0,
       zoomDelta: 0.5,
-    }).setView([34.053, -118.243], 16);
+    }).setView([28.601667, -81.200556], 16);
     L.control.zoom({ position: "bottomleft" }).addTo(this.map);
     this.stopZoom = enableSmoothMapZoom(this.map);
     // Set the initial bounds before requesting tiles, and request only the chosen layer.
@@ -148,6 +141,8 @@ export class PersonMapController {
         ? "live"
         : "fixture"
       : this.fittedSource;
+    if (source === "fixture" && !fixed && !this.fittedSource)
+      this.fittedSource = source;
     if (pins.length && source !== this.fittedSource) {
       this.fittedSource = source;
       const points: [number, number][] = pins.map((pin) => [
@@ -247,6 +242,74 @@ export class PersonMapController {
         select,
       );
     this.missionLayer?.render(shapes, selectedId, editing);
+  }
+  async openOfflineMission() {
+    const response = await fetch("/api/offline-mission");
+    const mission = await response.json();
+    const bounds = mission?.bounds;
+    if (
+      !bounds ||
+      ![bounds.south, bounds.north, bounds.west, bounds.east].every(
+        Number.isFinite,
+      )
+    )
+      throw new Error("No prepared mission area found.");
+    this.map.fitBounds(
+      [
+        [bounds.south, bounds.west],
+        [bounds.north, bounds.east],
+      ],
+      { padding: [16, 16], animate: false },
+    );
+  }
+  async saveOfflineArea(progress: (done: number, total: number) => void) {
+    const bounds = this.map.getBounds();
+    const baseZoom = Math.floor(this.map.getZoom());
+    const urls: string[] = [];
+    for (
+      let z = Math.max(0, baseZoom - 1);
+      z <= Math.min(19, baseZoom + 2);
+      z++
+    ) {
+      const nw = this.map
+        .project(bounds.getNorthWest(), z)
+        .divideBy(256)
+        .floor();
+      const se = this.map
+        .project(bounds.getSouthEast(), z)
+        .divideBy(256)
+        .floor();
+      for (let x = nw.x; x <= se.x; x++)
+        for (let y = nw.y; y <= se.y; y++) {
+          const wrappedX = ((x % 2 ** z) + 2 ** z) % 2 ** z;
+          if (y >= 0 && y < 2 ** z)
+            for (const layer of ["topographic", "street", "satellite"] as const)
+              urls.push(`/api/map-tiles/${layer}/${z}/${wrappedX}/${y}`);
+          if (urls.length > 1500)
+            throw new Error("Area too large. Zoom in before saving.");
+        }
+    }
+    let done = 0,
+      failed = 0;
+    progress(done, urls.length);
+    for (let start = 0; start < urls.length; start += 4) {
+      await Promise.all(
+        urls.slice(start, start + 4).map(async (url) => {
+          try {
+            const response = await fetch(url);
+            if (!response.ok) failed++;
+            else await response.arrayBuffer();
+          } catch {
+            failed++;
+          }
+          progress(++done, urls.length);
+        }),
+      );
+    }
+    if (failed)
+      throw new Error(
+        `${urls.length - failed}/${urls.length} tiles saved. Connect to internet and retry for complete coverage.`,
+      );
   }
   resize() {
     this.map.invalidateSize({

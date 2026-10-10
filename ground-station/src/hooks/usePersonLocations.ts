@@ -30,6 +30,21 @@ export function usePersonLocations(
   const received = useRef(0);
   const telemetryReceived = useRef(0);
   const calibrator = useRef(new CourseHeading());
+  useEffect(() => {
+    let disposed = false;
+    fetch("/api/offline-terrain")
+      .then((response) => response.json())
+      .then((grid) => {
+        if (!disposed && grid) {
+          const sampler = gridTerrain(grid);
+          setTerrain(() => sampler);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+    };
+  }, [projectionConfig]);
   const lastTime = useRef(0);
   const ingestRef = useRef<(t: VehicleTelemetry) => void>(() => {});
   useEffect(() => {
@@ -42,10 +57,14 @@ export function usePersonLocations(
         .filter((arrival) => arrival > 0)
         .map((arrival) => arrival + LOCATION_STALE_MS + 1)
         .filter((deadline) => deadline > time);
-      if (deadlines.length) expiry = setTimeout(() => {
-        setNow(Date.now());
-        scheduleExpiry();
-      }, Math.min(...deadlines) - time);
+      if (deadlines.length)
+        expiry = setTimeout(
+          () => {
+            setNow(Date.now());
+            scheduleExpiry();
+          },
+          Math.min(...deadlines) - time,
+        );
     };
     const ingest = (t: VehicleTelemetry) => {
       if (t.timestamp_ms <= lastTime.current) return;
@@ -92,13 +111,12 @@ export function usePersonLocations(
       setHistory([]);
       setFrames([]);
       setDetection(null);
-      setTerrain(undefined);
+
       setConfig(e.detail);
     };
     const terrainEvent = (e: Event) => {
       if (!(e instanceof CustomEvent)) return;
       if (e.detail === null) {
-        setTerrain(undefined);
         return;
       }
       try {
@@ -143,10 +161,30 @@ export function usePersonLocations(
   useEffect(() => {
     if (latest) ingestRef.current(latest);
   }, [latest]);
-  return useMemo(() => locationSnapshot({
-    active, frames, detection, config: projectionConfig, history, now,
-    frameReceived: received.current, telemetryReceived: telemetryReceived.current,
-    terrain, testing: testConfig !== null,
-    headingFor: (telemetry) => calibrator.current.heading(telemetry),
-  }), [active, frames, detection, projectionConfig, history, now, terrain, testConfig]);
+  return useMemo(
+    () =>
+      locationSnapshot({
+        active,
+        frames,
+        detection,
+        config: projectionConfig,
+        history,
+        now,
+        frameReceived: received.current,
+        telemetryReceived: telemetryReceived.current,
+        terrain,
+        testing: testConfig !== null,
+        headingFor: (telemetry) => calibrator.current.heading(telemetry),
+      }),
+    [
+      active,
+      frames,
+      detection,
+      projectionConfig,
+      history,
+      now,
+      terrain,
+      testConfig,
+    ],
+  );
 }

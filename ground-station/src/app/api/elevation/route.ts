@@ -1,3 +1,5 @@
+import { readOffline, writeOffline } from "../../../lib/offlineStore";
+import { gridTerrain, type TerrainGrid } from "../../../lib/terrainGrid";
 import { elevationRequestGate } from "../../../lib/elevationRateLimit";
 import {
   cachedElevation,
@@ -30,6 +32,40 @@ export async function GET(request: NextRequest) {
     );
   }
   const key = elevationKey(latitude, longitude);
+  const terrainBytes = await readOffline("terrain.json");
+  if (terrainBytes) {
+    try {
+      const elevation = gridTerrain(
+        JSON.parse(terrainBytes.toString()) as TerrainGrid,
+      )(latitude, longitude);
+      if (elevation !== null)
+        return respond({
+          status: 200,
+          body: {
+            latitude,
+            longitude,
+            elevation_m: elevation,
+            source: "Imported offline terrain grid",
+          },
+        });
+    } catch {
+      /* Fall through to saved point readings. */
+    }
+  }
+  const saved = await readOffline(`elevation/${key}.json`);
+  if (saved) {
+    try {
+      const answer = JSON.parse(saved.toString()) as ElevationAnswer;
+      if (
+        answer.status === 200 &&
+        typeof answer.body.elevation_m === "number" &&
+        Number.isFinite(answer.body.elevation_m)
+      )
+        return respond(answer);
+    } catch {
+      /* Retry corrupted entries online. */
+    }
+  }
   const cached = cachedElevation(key);
   if (cached) return respond(cached);
   const url = new URL("https://epqs.nationalmap.gov/v1/json");
@@ -44,7 +80,7 @@ export async function GET(request: NextRequest) {
     const response = await elevationRequestGate(() => {
       if (request.signal.aborted) throw new Error("Request cancelled");
       return fetch(url, {
-        signal: AbortSignal.timeout(12000),
+        signal: AbortSignal.timeout(5000),
         next: { revalidate: 86400 },
       });
     });
@@ -74,10 +110,15 @@ export async function GET(request: NextRequest) {
             },
           };
     storeElevation(key, answer);
+    if (answer.status === 200)
+      await writeOffline(`elevation/${key}.json`, JSON.stringify(answer));
     return respond(answer);
   } catch {
     return NextResponse.json(
-      { error: "Elevation lookup unavailable. Try again." },
+      {
+        error:
+          "No saved elevation here. Connect to internet or import terrain for this area.",
+      },
       { status: 502 },
     );
   }

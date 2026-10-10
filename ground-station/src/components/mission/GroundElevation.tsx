@@ -6,6 +6,7 @@ interface GroundElevationProps {
 }
 export function GroundElevation({ latitude, longitude }: GroundElevationProps) {
   const [elevation, setElevation] = useState<number | null>(null);
+  const [source, setSource] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
@@ -24,7 +25,10 @@ export function GroundElevation({ latitude, longitude }: GroundElevationProps) {
           !Number.isFinite(result.elevation_m)
         )
           throw new Error("Elevation unavailable");
-        if (!controller.signal.aborted) setElevation(result.elevation_m);
+        if (!controller.signal.aborted) {
+          setElevation(result.elevation_m);
+          setSource(result.source ?? "Terrain data");
+        }
       })
       .catch((error) => {
         if (!controller.signal.aborted)
@@ -52,8 +56,7 @@ export function GroundElevation({ latitude, longitude }: GroundElevationProps) {
         </span>
       </div>
       <p className="leading-relaxed mt-2 text-[10px] text-[color:var(--color-ink)]/80">
-        {error ??
-          "USGS 3DEP · Terrain elevation, separate from drone altitude."}
+        {error ?? `${source || "Terrain data"} · Separate from drone altitude.`}
       </p>
       {error && (
         <button

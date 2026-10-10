@@ -115,3 +115,14 @@ test("missing image payload does not substitute an unrelated capture", () => {
     locationSnapshot(input).pins.every((pin) => pin.review === undefined),
   );
 });
+
+test("synthetic test pins and drone stay near UCF", () => {
+  const input = inputs();
+  const result = locationSnapshot(input);
+  assert.equal(input.history[0].lat, 28.601667);
+  assert.equal(input.history[0].lon, -81.200556);
+  for (const pin of result.pins) {
+    assert.ok(Math.abs(pin.latitude - 28.601667) < 0.03);
+    assert.ok(Math.abs(pin.longitude + 81.200556) < 0.035);
+  }
+});

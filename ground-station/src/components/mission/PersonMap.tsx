@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { OfflineMapTools } from "./OfflineMapTools";
 import { ShapeToolbar } from "./ShapeToolbar";
 import { MissionPathPanel } from "./MissionPathPanel";
 import { useMissionPlanner } from "../../hooks/useMissionPlanner";
@@ -160,6 +161,16 @@ export function PersonMap(props: PersonMapProps) {
               toolbarHost,
             )}
           <MissionPathPanel planner={planner} />
+          <OfflineMapTools
+            openMission={async () => {
+              if (!controller.current) throw new Error("Map is not ready");
+              await controller.current.openOfflineMission();
+            }}
+            save={async (progress) => {
+              if (!controller.current) throw new Error("Map is not ready");
+              await controller.current.saveOfflineArea(progress);
+            }}
+          />
         </>
       )}
       {error && (

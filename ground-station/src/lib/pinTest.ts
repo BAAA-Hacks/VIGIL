@@ -12,6 +12,9 @@ export const PIN_TEST_CONFIG: LocationConfig = {
 export function createPinTestSample(timestamp: number, payload: string) {
   const telemetry = {
     ...data.pin_test.telemetry,
+    lat: 28.601667,
+    lon: -81.200556,
+    home: { lat: 28.601667, lon: -81.200556 },
     timestamp_ms: timestamp,
     data_age_ms: 0,
   };
