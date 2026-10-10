@@ -7,3 +7,4 @@ numpy>=1.24
 PyYAML>=6.0
 matplotlib>=3.7
 python-socketio[client]>=5.11
+lap>=0.5.12

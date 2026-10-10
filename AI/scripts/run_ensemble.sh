@@ -3,7 +3,7 @@
 #
 #   AI/scripts/run_ensemble.sh [member.pt ...]
 #
-# Defaults to YOLO26s-P2 + YOLO26m. Pick the setting on val (val_summary.txt) and only
+# Defaults to YOLO26s-P2 + the close-up blur model. Pick the setting on val (val_summary.txt) and only
 # read test_summary.txt for that setting; choosing on test overfits two sequences.
 set -euo pipefail
 
@@ -18,8 +18,8 @@ if [ "$#" -ge 2 ]; then
   MEMBERS=("$@")
 else
   MEMBERS=(
-    AI/models/runs/thermal_medium_range_yolo26s_p2/weights/best.pt
-    AI/checkpoints/thermal_medium_range_yolo26m_best.pt
+    AI/checkpoints/thermal_medium_range_yolo26s_p2_best.pt
+    AI/checkpoints/thermal_medium_range_yolo26s_p2_closeup_blur_best.pt
   )
 fi
 
