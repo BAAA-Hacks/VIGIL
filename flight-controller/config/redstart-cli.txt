@@ -1,5 +1,5 @@
 # version
-# INAV/REDSTART 7.1.2 Oct 10 2026 / 01:51:27 (3887f01d)
+# INAV/REDSTART 7.1.2 Oct 10 2026 / 06:33:22 (0cb0c9a4)
 # GCC-10.3.1 20210824 (release)
 
 # start the command batch
@@ -74,10 +74,10 @@ set dynamic_gyro_notch_q = 250
 set dynamic_gyro_notch_min_hz = 60
 set dynamic_gyro_notch_mode = 3D
 set setpoint_kalman_q = 200
-set gyro_zero_x = 6
-set gyro_zero_y = -14
-set gyro_zero_z = -7
-set ins_gravity_cmss =  981.150
+set gyro_zero_x = 14
+set gyro_zero_y = -26
+set gyro_zero_z = -8
+set ins_gravity_cmss =  983.717
 set acc_hardware = LSM6DXX
 set acczero_x = 17
 set acczero_y = -31
@@ -90,10 +90,8 @@ set mag_hardware = NONE
 set blackbox_rate_denom = 2
 set motor_pwm_protocol = STANDARD
 set failsafe_procedure = DROP
-set align_board_yaw = 2700
 set applied_defaults = 5
 set airmode_type = THROTTLE_THRESHOLD
-set beeper_pwm_mode = ON
 
 # mixer_profile
 mixer_profile 1
@@ -114,11 +112,12 @@ mmix 3  1.000  1.000 -1.000 -1.000
 # profile
 profile 1
 
-set mc_p_pitch = 44
+set mc_p_pitch = 38
 set mc_i_pitch = 85
-set mc_d_pitch = 28
+set mc_d_pitch = 26
+set mc_p_roll = 30
 set mc_i_roll = 75
-set mc_d_roll = 26
+set mc_d_roll = 22
 set mc_p_yaw = 40
 set mc_i_yaw = 80
 set dterm_lpf_hz = 80
@@ -129,6 +128,8 @@ set d_boost_max =  1.200
 set antigravity_gain =  2.000
 set antigravity_accelerator =  5.000
 set smith_predictor_delay =  1.500
+set thr_mid = 40
+set thr_expo = 30
 set tpa_rate = 20
 set tpa_breakpoint = 1200
 set rc_expo = 75
