@@ -67,7 +67,7 @@ XT60 → +BATT → MP1584EN → **+5V** (Black Pill 5V pins, J6 receiver power) 
 
 | Use | Timer / DMA | Notes |
 |---|---|---|
-| DShot300 ×4 | TIM3 CH1–4, **burst DMA on TIM3_UP = DMA1 Stream2 Ch5** | TIM3 clock 96 MHz (APB1 48 MHz ×2). Bit = 320 ticks, T0H = 120, T1H = 240. One stream for all motors, which avoids the CH2 (S5) / CH3 (S7) per-channel streams. |
+| Motor outputs ×4 | TIM3 CH1–4 | **The ESCs don't accept DShot** (confirmed 2026-10-10: 0.35 V of DShot on the pins but no arming; they arm on standard PWM). Use STANDARD (or ONESHOT125 if they take it). Throttle endpoints must match the ESC calibration; motor direction is set by swapping motor wires. |
 | CRSF | USART2 (APB1), 420000 baud | Interrupt-driven HardwareSerial, 256-byte RX buffer. USART IRQ priority above the control loop. |
 | GPS | USART1 | 9600 default, PMTK to 38400 / 10 Hz later |
 | GPS PPS | TIM1_CH1 input capture (later) | |

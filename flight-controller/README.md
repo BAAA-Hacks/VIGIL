@@ -1,6 +1,6 @@
 # Redstart flight controller
 
-Custom flight-controller firmware for **Redstart**, a 7" search-and-rescue quadcopter (STM32F411 Black Pill, ISM330DHCX, BMP581, Adafruit Ultimate GPS, ExpressLRS/CRSF, DShot ESCs, 4S).
+Custom flight-controller firmware for **Redstart**, a 7" search-and-rescue quadcopter (STM32F411 Black Pill, ISM330DHCX, BMP581, Adafruit Ultimate GPS, ExpressLRS/CRSF, PWM ESCs, 4S).
 
 **Firmware:** INAV 7.1.2 with a custom `REDSTART` board target (`target/REDSTART/`) and an ISM330DHCX patch (`patches/`). The INAV source itself isn't in git: `./fc.sh build` downloads it into `inav/`, applies the patches and links the target in.
 **Status:** M0: firmware builds; hardware checks pending. **Not flight-ready.**
