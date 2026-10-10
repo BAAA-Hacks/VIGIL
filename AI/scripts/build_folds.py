@@ -16,6 +16,7 @@ import yaml
 try:
     from AI.scripts.dataset_utils import (
         YoloBox,
+        absolute_path,
         box_is_normalized,
         find_data_yaml,
         label_path_for_image,
@@ -28,6 +29,7 @@ try:
 except ModuleNotFoundError:
     from AI.scripts.dataset_utils import (  # type: ignore
         YoloBox,
+        absolute_path,
         box_is_normalized,
         find_data_yaml,
         label_path_for_image,
@@ -78,7 +80,28 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--box-margin", type=int, default=8)
     parser.add_argument("--crop-attempts", type=int, default=50)
     parser.add_argument("--seed", type=int, default=26)
+    parser.add_argument(
+        "--holdout-sequences-file",
+        type=Path,
+        help=(
+            "optional text file containing one source-sequence name per line; "
+            "these videos are excluded from every train/val fold and written as test"
+        ),
+    )
     return parser.parse_args()
+
+
+def read_sequence_names(path: Path | None) -> set[str]:
+    if path is None:
+        return set()
+    resolved = path.expanduser().resolve()
+    if not resolved.is_file():
+        raise SystemExit(f"Holdout sequence file not found: {resolved}")
+    return {
+        line
+        for raw_line in resolved.read_text(encoding="utf-8").splitlines()
+        if (line := raw_line.strip()) and not line.startswith("#")
+    }
 
 
 def load_records(config, target_width: int = 160, target_height: int = 120) -> dict[str, SequenceStats]:
@@ -225,6 +248,7 @@ def generate_negatives(
     assignments: dict[str, int],
     destination: Path,
     args: argparse.Namespace,
+    test_sequences: set[str],
 ) -> tuple[list[dict], dict[str, list[Path]]]:
     rng = random.Random(args.seed + 1)
     manifest: list[dict] = []
@@ -272,7 +296,8 @@ def generate_negatives(
                     "image": str(output_image.resolve()),
                     "parent": str(record.path),
                     "sequence": sequence,
-                    "heldout_fold": assignments[sequence],
+                    "heldout_fold": assignments.get(sequence),
+                    "reserved_test": sequence in test_sequences,
                     "crop_xyxy": list(crop),
                     "source_size": [record.width, record.height],
                     "output_size": [args.negative_width, args.negative_height],
@@ -289,6 +314,7 @@ def write_folds(
     destination: Path,
     fold_count: int,
     seed: int,
+    test_sequences: set[str],
 ) -> list[dict]:
     summaries: list[dict] = []
     for fold_index in range(fold_count):
@@ -297,11 +323,18 @@ def write_folds(
         validation_sequences = {name for name, assigned in assignments.items() if assigned == fold_index}
         train_images: list[Path] = []
         validation_images: list[Path] = []
+        test_images: list[Path] = []
         train_originals = validation_originals = train_negatives = validation_negatives = 0
+        test_originals = test_negatives = 0
         for sequence, stats in sequences.items():
-            original_paths = [record.path.resolve() for record in stats.images]
+            original_paths = [absolute_path(record.path) for record in stats.images]
             negative_paths = negatives.get(sequence, [])
-            if sequence in validation_sequences:
+            if sequence in test_sequences:
+                test_images.extend(original_paths)
+                test_images.extend(negative_paths)
+                test_originals += len(original_paths)
+                test_negatives += len(negative_paths)
+            elif sequence in validation_sequences:
                 validation_images.extend(original_paths)
                 validation_images.extend(negative_paths)
                 validation_originals += len(original_paths)
@@ -314,10 +347,14 @@ def write_folds(
 
         train_images.sort()
         validation_images.sort()
+        test_images.sort()
         train_list = fold_dir / "train.txt"
         validation_list = fold_dir / "val.txt"
         train_list.write_text("\n".join(map(str, train_images)) + "\n", encoding="utf-8")
         validation_list.write_text("\n".join(map(str, validation_images)) + "\n", encoding="utf-8")
+        test_list = fold_dir / "test.txt"
+        if test_images:
+            test_list.write_text("\n".join(map(str, test_images)) + "\n", encoding="utf-8")
         fold_yaml = {
             "path": str(fold_dir.resolve()),
             "train": str(train_list.resolve()),
@@ -330,8 +367,11 @@ def write_folds(
                 "seed": seed,
                 "grouped_by_source_sequence": True,
                 "heldout_sequences": sorted(validation_sequences),
+                "reserved_test_sequences": sorted(test_sequences),
             },
         }
+        if test_images:
+            fold_yaml["test"] = str(test_list.resolve())
         (fold_dir / "data.yaml").write_text(
             yaml.safe_dump(fold_yaml, sort_keys=False), encoding="utf-8"
         )
@@ -343,6 +383,8 @@ def write_folds(
                 "train_negatives": train_negatives,
                 "validation_originals": validation_originals,
                 "validation_negatives": validation_negatives,
+                "test_originals": test_originals,
+                "test_negatives": test_negatives,
             }
         )
     return summaries
@@ -372,8 +414,18 @@ def main() -> None:
     destination.mkdir(parents=True, exist_ok=True)
 
     sequences = load_records(config)
-    assignments = assign_folds(sequences, args.folds, args.seed)
-    manifest, negatives = generate_negatives(sequences, assignments, destination, args)
+    test_sequences = read_sequence_names(args.holdout_sequences_file)
+    unknown_test_sequences = sorted(test_sequences - set(sequences))
+    if unknown_test_sequences:
+        preview = "\n  ".join(unknown_test_sequences[:20])
+        raise SystemExit(f"Unknown holdout sequence names:\n  {preview}")
+    fold_sequences = {
+        name: stats for name, stats in sequences.items() if name not in test_sequences
+    }
+    assignments = assign_folds(fold_sequences, args.folds, args.seed)
+    manifest, negatives = generate_negatives(
+        sequences, assignments, destination, args, test_sequences
+    )
     fold_summaries = write_folds(
         config,
         sequences,
@@ -382,6 +434,7 @@ def main() -> None:
         destination,
         args.folds,
         args.seed,
+        test_sequences,
     )
     report = {
         "source_yaml": str(yaml_path),
@@ -398,6 +451,7 @@ def main() -> None:
             "warning": "Crops avoid known annotations only; manually review for missed people.",
         },
         "sequence_assignments": assignments,
+        "reserved_test_sequences": sorted(test_sequences),
         "fold_summaries": fold_summaries,
     }
     write_json(destination / "negative_manifest.json", manifest)

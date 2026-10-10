@@ -53,6 +53,23 @@ The expected Roboflow split is 8,093 training, 489 validation, and 689 test imag
 scripts read the actual paths from `data.yaml`, so the extraction may use a slightly
 different folder layout.
 
+For the full source-video release, the importer can consume the extracted `*_IR_*` folders
+directly. Run these commands from the repository root:
+
+```bash
+python -m AI.scripts.import_wisard_raw \
+  /home/agnco/PyTorch/Files \
+  AI/datasets/wisard_full_ir_manifest
+
+python -m AI.scripts.inspect_dataset \
+  AI/datasets/wisard_full_ir_manifest/data.yaml \
+  --output AI/reports/wisard_full_ir_preflight
+```
+
+The canonical manifest references source images with symlinks, writes normalized labels into
+the workspace, and leaves the extracted download unchanged. A missing source label is accepted
+as an empty frame only when that video's `count.txt` explicitly declares zero humans.
+
 ## 1. Inspect the original dataset
 
 ```bash
@@ -65,6 +82,10 @@ channels and data types. It reports bounding-box dimensions after an effective 1
 reduction, flags boxes with a side smaller than four pixels, and saves annotated examples.
 
 Review `reports/wisard_original/inspection_report.json` before training.
+
+Before building folds from a new/full export, inspect `source_sequence_overlap.parser_audit`
+and `exact_content_duplicates`. A high singleton/unparsed-frame count indicates that filename
+grouping needs adjustment; cross-split pixel duplicates must be resolved before evaluation.
 
 The v2 export has no empty-background frames. Its original test set is also drawn from a
 video that occurs in training, so the preferred experiment is grouped cross-validation.
@@ -79,6 +100,30 @@ python scripts/build_folds.py \
   --negative-fraction 0.25 \
   --seed 26
 ```
+
+For a final experiment, choose untouched source videos before looking at model results, put one
+exact sequence name per line in `config/wisard_locked_test_sequences.txt`, and add:
+
+```bash
+  --holdout-sequences-file config/wisard_locked_test_sequences.txt
+```
+
+Those videos are excluded from every cross-validation train/validation fold and exposed through
+each fold YAML's common `test` split.
+
+The sequence list can be selected deterministically, without looking at model performance, while
+balancing image, annotation, and tiny-target counts:
+
+```bash
+python scripts/select_holdout_sequences.py \
+  /path/to/full_wisard/data.yaml \
+  config/wisard_locked_test_sequences.txt \
+  --fraction 0.05 \
+  --seed 26
+```
+
+Review and preserve both the generated text file and its adjacent JSON selection report before
+building folds.
 
 The builder combines the supplied splits but keeps every source video wholly inside one
 held-out fold. It creates one candidate background crop for approximately 25% of frames,

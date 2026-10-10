@@ -12,6 +12,7 @@ import yaml
 
 try:
     from AI.scripts.dataset_utils import (
+        absolute_path,
         box_is_normalized,
         format_yolo_box,
         label_path_for_image,
@@ -23,6 +24,7 @@ try:
     from AI.scripts.prepare_wisard import letterbox_grayscale, transform_box
 except ModuleNotFoundError:
     from AI.scripts.dataset_utils import (  # type: ignore
+        absolute_path,
         box_is_normalized,
         format_yolo_box,
         label_path_for_image,
@@ -64,9 +66,9 @@ def main() -> None:
     fold_configs = [load_dataset_config(path) for path in fold_yamls]
     unique_images: dict[Path, None] = {}
     for config in fold_configs:
-        for split in ("train", "val"):
+        for split in ("train", "val", "test"):
             for image in split_images(config, split):
-                unique_images[image.resolve()] = None
+                unique_images[absolute_path(image)] = None
 
     image_root = destination / "images"
     label_root = destination / "labels"
@@ -128,8 +130,11 @@ def main() -> None:
         fold_dir = destination / fold_name
         fold_dir.mkdir(parents=True, exist_ok=True)
         split_counts = {}
-        for split in ("train", "val"):
-            converted_paths = [mapping[path.resolve()] for path in split_images(config, split)]
+        for split in ("train", "val", "test"):
+            source_paths = split_images(config, split)
+            if not source_paths:
+                continue
+            converted_paths = [mapping[absolute_path(path)] for path in source_paths]
             list_path = fold_dir / f"{split}.txt"
             list_path.write_text("\n".join(map(str, converted_paths)) + "\n", encoding="utf-8")
             split_counts[split] = len(converted_paths)
@@ -151,6 +156,8 @@ def main() -> None:
                 ),
             },
         }
+        if "test" in split_counts:
+            output_yaml["test"] = str((fold_dir / "test.txt").resolve())
         (fold_dir / "data.yaml").write_text(
             yaml.safe_dump(output_yaml, sort_keys=False), encoding="utf-8"
         )

@@ -4,8 +4,9 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import random
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 
 import cv2
@@ -73,20 +74,101 @@ def draw_example(image_path: Path, boxes: list, names: dict[int, str], output: P
     cv2.imwrite(str(output), image)
 
 
+def decoded_image_fingerprint(image) -> str:
+    """Hash decoded pixels so renamed byte-identical images can be detected."""
+    digest = hashlib.sha256()
+    digest.update(str(image.shape).encode("ascii"))
+    digest.update(str(image.dtype).encode("ascii"))
+    digest.update(image.tobytes(order="C"))
+    return digest.hexdigest()
+
+
+def duplicate_content_report(content_groups: dict[str, list[tuple[str, Path]]]) -> dict:
+    duplicates = {
+        digest: entries for digest, entries in content_groups.items() if len(entries) > 1
+    }
+    cross_split = {
+        digest: entries
+        for digest, entries in duplicates.items()
+        if len({split for split, _ in entries}) > 1
+    }
+    pairwise: Counter = Counter()
+    for entries in cross_split.values():
+        splits = sorted({split for split, _ in entries})
+        for left_index, left in enumerate(splits):
+            for right in splits[left_index + 1 :]:
+                pairwise[f"{left}_{right}"] += 1
+
+    def examples(groups: dict[str, list[tuple[str, Path]]]) -> list[dict]:
+        return [
+            {
+                "sha256_decoded_pixels": digest,
+                "files": [
+                    {"split": split, "path": str(path)} for split, path in entries
+                ],
+            }
+            for digest, entries in sorted(groups.items())[:100]
+        ]
+
+    return {
+        "method": "SHA-256 over decoded shape, dtype, and exact pixel values",
+        "duplicate_groups": len(duplicates),
+        "images_in_duplicate_groups": sum(len(entries) for entries in duplicates.values()),
+        "cross_split_duplicate_groups": len(cross_split),
+        "cross_split_group_counts": dict(sorted(pairwise.items())),
+        "examples_limited_to": 100,
+        "duplicate_examples": examples(duplicates),
+        "cross_split_examples": examples(cross_split),
+    }
+
+
 def sequence_overlap(split_paths: dict[str, list[Path]]) -> dict:
     sequences: dict[str, dict[str, set[int]]] = {}
+    parser_audit: dict[str, dict] = {}
     for split, images in split_paths.items():
         split_sequences: dict[str, set[int]] = {}
+        frame_occurrences: Counter = Counter()
+        original_frame_occurrences: Counter = Counter()
+        frames_without_number = 0
+        derived_negative_images = 0
         for image in images:
             sequence, frame = source_frame_id(image)
+            derived_negative = "_negative" in image.stem.casefold()
+            derived_negative_images += derived_negative
             if frame is not None:
                 split_sequences.setdefault(sequence, set()).add(frame)
+                frame_occurrences[(sequence, frame)] += 1
+                if not derived_negative:
+                    original_frame_occurrences[(sequence, frame)] += 1
             else:
                 split_sequences.setdefault(sequence, set())
+                frames_without_number += 1
         sequences[split] = split_sequences
+        sizes = Counter(source_frame_id(image)[0] for image in images)
+        parser_audit[split] = {
+            "images": len(images),
+            "sequences": len(sizes),
+            "frames_without_parsed_number": frames_without_number,
+            "frames_without_parsed_number_fraction": (
+                round(frames_without_number / len(images), 6) if images else None
+            ),
+            "derived_negative_images": derived_negative_images,
+            "singleton_sequences": sum(size == 1 for size in sizes.values()),
+            "duplicate_sequence_frame_ids": sum(
+                count - 1 for count in frame_occurrences.values() if count > 1
+            ),
+            "duplicate_original_sequence_frame_ids": sum(
+                count - 1 for count in original_frame_occurrences.values() if count > 1
+            ),
+            "largest_sequences": [
+                {"sequence": sequence, "images": size}
+                for sequence, size in sizes.most_common(20)
+            ],
+        }
 
     report: dict[str, object] = {
         "sequence_counts": {split: len(items) for split, items in sequences.items()},
+        "parser_audit": parser_audit,
         "pairwise": {},
     }
     for left, right in (("train", "val"), ("train", "test"), ("val", "test")):
@@ -114,6 +196,7 @@ def summarize_split(
     tiny_threshold: float,
     example_count: int,
     rng: random.Random,
+    content_groups: dict[str, list[tuple[str, Path]]],
 ) -> dict:
     counts: Counter = Counter(images=len(images))
     class_counts: Counter = Counter()
@@ -128,6 +211,9 @@ def summarize_split(
             counts["unreadable_images"] += 1
             issues.append(f"Unreadable image: {image_path}")
             continue
+        content_groups[decoded_image_fingerprint(image)].append(
+            (split, image_path.resolve())
+        )
         source_height, source_width = image.shape[:2]
         counts[f"dimensions_{source_width}x{source_height}"] += 1
         counts[f"channels_{1 if image.ndim == 2 else image.shape[2]}"] += 1
@@ -236,6 +322,7 @@ def main() -> None:
     split_paths = {
         split: split_images(config, split) for split in ("train", "val", "test")
     }
+    content_groups: dict[str, list[tuple[str, Path]]] = defaultdict(list)
     for split, images in split_paths.items():
         if not images:
             continue
@@ -249,10 +336,12 @@ def main() -> None:
             args.tiny_threshold,
             args.examples_per_split,
             rng,
+            content_groups,
         )
     report["source_sequence_overlap"] = sequence_overlap(
         {split: paths for split, paths in split_paths.items() if paths}
     )
+    report["exact_content_duplicates"] = duplicate_content_report(content_groups)
 
     write_json(output / "inspection_report.json", report)
     print(f"Inspection report: {output / 'inspection_report.json'}")
@@ -264,6 +353,11 @@ def main() -> None:
             f"{counts.get('tiny_annotations', 0)} tiny boxes, "
             f"{len(summary['issues'])} issues"
         )
+    duplicates = report["exact_content_duplicates"]
+    print(
+        f"  exact duplicate groups: {duplicates['duplicate_groups']}; "
+        f"cross-split: {duplicates['cross_split_duplicate_groups']}"
+    )
 
 
 if __name__ == "__main__":
