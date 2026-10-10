@@ -38,6 +38,7 @@ export function ViewerPane({
         className={
           "absolute overflow-hidden " +
           placement +
+          (!primary && thermal ? " !right-[72px]" : "") +
           " " +
           background +
           (!primary && minimized ? " hidden" : "")

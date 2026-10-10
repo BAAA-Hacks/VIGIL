@@ -12,7 +12,6 @@ import {
 
 import { gridTerrain, type TerrainGrid } from "../lib/terrainGrid";
 import { isLocationConfig } from "../lib/locationConfig";
-import { VIGIL_EVENTS } from "../lib/events";
 import { locationSnapshot, LOCATION_STALE_MS } from "../lib/locationSnapshot";
 
 /** Live transport adapter. Capture timestamps and session conventions are explicit inputs. */
@@ -43,14 +42,10 @@ export function usePersonLocations(
         .filter((arrival) => arrival > 0)
         .map((arrival) => arrival + LOCATION_STALE_MS + 1)
         .filter((deadline) => deadline > time);
-      if (deadlines.length)
-        expiry = setTimeout(
-          () => {
-            setNow(Date.now());
-            scheduleExpiry();
-          },
-          Math.min(...deadlines) - time,
-        );
+      if (deadlines.length) expiry = setTimeout(() => {
+        setNow(Date.now());
+        scheduleExpiry();
+      }, Math.min(...deadlines) - time);
     };
     const ingest = (t: VehicleTelemetry) => {
       if (t.timestamp_ms <= lastTime.current) return;
@@ -121,18 +116,18 @@ export function usePersonLocations(
       }
     };
     scheduleExpiry();
-    window.addEventListener(VIGIL_EVENTS.terrain, terrainEvent);
-    window.addEventListener(VIGIL_EVENTS.telemetry, telemetry);
-    window.addEventListener(VIGIL_EVENTS.frame, frame);
-    window.addEventListener(VIGIL_EVENTS.detection, detections);
-    window.addEventListener(VIGIL_EVENTS.locationConfig, configuration);
+    window.addEventListener("vigil:terrain", terrainEvent);
+    window.addEventListener("vigil:telemetry", telemetry);
+    window.addEventListener("vigil:frame", frame);
+    window.addEventListener("vigil:detection", detections);
+    window.addEventListener("vigil:location-config", configuration);
     return () => {
       clearTimeout(expiry);
-      window.removeEventListener(VIGIL_EVENTS.terrain, terrainEvent);
-      window.removeEventListener(VIGIL_EVENTS.telemetry, telemetry);
-      window.removeEventListener(VIGIL_EVENTS.frame, frame);
-      window.removeEventListener(VIGIL_EVENTS.detection, detections);
-      window.removeEventListener(VIGIL_EVENTS.locationConfig, configuration);
+      window.removeEventListener("vigil:terrain", terrainEvent);
+      window.removeEventListener("vigil:telemetry", telemetry);
+      window.removeEventListener("vigil:frame", frame);
+      window.removeEventListener("vigil:detection", detections);
+      window.removeEventListener("vigil:location-config", configuration);
     };
   }, [projectionConfig]);
   useEffect(() => {
@@ -148,30 +143,10 @@ export function usePersonLocations(
   useEffect(() => {
     if (latest) ingestRef.current(latest);
   }, [latest]);
-  return useMemo(
-    () =>
-      locationSnapshot({
-        active,
-        frames,
-        detection,
-        config: projectionConfig,
-        history,
-        now,
-        frameReceived: received.current,
-        telemetryReceived: telemetryReceived.current,
-        terrain,
-        testing: testConfig !== null,
-        headingFor: (telemetry) => calibrator.current.heading(telemetry),
-      }),
-    [
-      active,
-      frames,
-      detection,
-      projectionConfig,
-      history,
-      now,
-      terrain,
-      testConfig,
-    ],
-  );
+  return useMemo(() => locationSnapshot({
+    active, frames, detection, config: projectionConfig, history, now,
+    frameReceived: received.current, telemetryReceived: telemetryReceived.current,
+    terrain, testing: testConfig !== null,
+    headingFor: (telemetry) => calibrator.current.heading(telemetry),
+  }), [active, frames, detection, projectionConfig, history, now, terrain, testConfig]);
 }

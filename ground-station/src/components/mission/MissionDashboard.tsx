@@ -8,6 +8,7 @@ import { DroneInfoPanel } from "./DroneInfoPanel";
 import { PinsPanel } from "./PinsPanel";
 import { useVehicleTelemetry } from "../../hooks/useVehicleTelemetry";
 import { usePinTest } from "../../hooks/usePinTest";
+import { useThermalFeed } from "../../hooks/useThermalFeed";
 import { usePersonLocations } from "../../hooks/usePersonLocations";
 import { LocationSettings } from "./LocationSettings";
 import { MOCK_PINS } from "../../data/missionDemo";
@@ -19,6 +20,7 @@ export function MissionDashboard() {
     pinTest.enabled ? null : vehicle.data,
     pinTest.config,
   );
+  const thermal = useThermalFeed(!pinTest.enabled);
   const pins = locations.active ? locations.pins : MOCK_PINS;
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [focusedPin, setFocusedPin] = useState<PinData | null>(null);
@@ -34,7 +36,7 @@ export function MissionDashboard() {
     setFocusRevision((current) => current + 1);
   }
   return (
-    <div className="bg-[var(--color-paper)] text-[color:var(--color-ink)] min-h-screen flex flex-col">
+    <div className="bg-[var(--color-paper)] text-[color:var(--color-ink)] [font-family:Arial,Helvetica,sans-serif] min-h-screen flex flex-col">
       <MissionHeader />
       <h1 className="sr-only">VIGIL search and rescue ground station</h1>
       <main
@@ -63,7 +65,7 @@ export function MissionDashboard() {
                 telemetry={locations.telemetry ?? vehicle.data}
               />
             }
-            message={pinTest.error || locations.message}
+            message={pinTest.error || locations.message || thermal.message}
             reasons={locations.reasons}
             pins={pins}
             expandedId={expandedId}

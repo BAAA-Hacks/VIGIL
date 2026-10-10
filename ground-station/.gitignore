@@ -9,3 +9,7 @@ next-env.d.ts
 
 # Local demo fixture
 /src/data/dummy-data.json
+
+# Python mission-bridge cache
+__pycache__/
+*.pyc

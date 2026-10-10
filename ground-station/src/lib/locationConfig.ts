@@ -18,3 +18,4 @@ export function isLocationConfig(value: unknown): value is LocationConfig {
     )
   );
 }
+

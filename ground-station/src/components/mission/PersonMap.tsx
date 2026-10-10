@@ -1,5 +1,10 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
+import { ShapeToolbar } from "./ShapeToolbar";
+import { MissionPathPanel } from "./MissionPathPanel";
+import { useMissionPlanner } from "../../hooks/useMissionPlanner";
+import { SHAPE_POINTS, type PathShapeKind } from "../../lib/missionPath";
 import { PersonMapController } from "../../lib/personMapController";
 import type { VehicleTelemetry } from "../../types/telemetry";
 import type { MapView } from "./MapViewSelect";
@@ -20,6 +25,31 @@ export function PersonMap(props: PersonMapProps) {
   const controller = useRef<PersonMapController | null>(null);
   const latest = useRef(props);
   const [error, setError] = useState(false);
+  const [toolbarHost, setToolbarHost] = useState<HTMLElement | null>(null);
+  const planner = useMissionPlanner();
+  const plannerRef = useRef(planner);
+  useEffect(() => {
+    plannerRef.current = planner;
+  });
+  useEffect(() => {
+    controller.current?.setMission(
+      planner.shapes,
+      planner.selectedId,
+      !props.compact && !planner.sending,
+      (shape) => plannerRef.current.update(shape),
+      (id) => plannerRef.current.select(id),
+    );
+  }, [planner.shapes, planner.selectedId, planner.sending, props.compact]);
+  function addShape(kind: PathShapeKind, clientX?: number, clientY?: number) {
+    const placement = controller.current?.placement(clientX, clientY);
+    if (placement)
+      planner.add(
+        kind,
+        placement.latitude,
+        placement.longitude,
+        placement.sizeM,
+      );
+  }
 
   useEffect(() => {
     latest.current = props;
@@ -35,6 +65,7 @@ export function PersonMap(props: PersonMapProps) {
     let disposed = false;
     const host = container.current;
     if (!host) return;
+    setToolbarHost(host.closest("section"));
     import("leaflet")
       .then((L) => {
         if (disposed) return;
@@ -48,6 +79,14 @@ export function PersonMap(props: PersonMapProps) {
           current.drone,
         );
         controller.current = map;
+        const plan = plannerRef.current;
+        map.setMission(
+          plan.shapes,
+          plan.selectedId,
+          !current.compact && !plan.sending,
+          (shape) => plannerRef.current.update(shape),
+          (id) => plannerRef.current.select(id),
+        );
         map.focus(current.focusedPin, current.focusRevision);
       })
       .catch(() => {
@@ -65,17 +104,45 @@ export function PersonMap(props: PersonMapProps) {
   }, [props.compact]);
 
   return (
-    <div className="relative size-full [&_.leaflet-control-attribution]:max-w-[80%] [&_.leaflet-control-attribution]:text-[9px] [&_.leaflet-control-attribution_a]:text-[color:var(--color-ink)]">
+    <div
+      onDragOver={(event) => {
+        if (
+          !props.compact &&
+          event.dataTransfer.types.includes("application/x-vigil-shape")
+        ) {
+          event.preventDefault();
+          event.dataTransfer.dropEffect = "copy";
+        }
+      }}
+      onDrop={(event) => {
+        if (props.compact || planner.sending) return;
+        const kind = event.dataTransfer.getData("application/x-vigil-shape");
+        if (Object.hasOwn(SHAPE_POINTS, kind)) {
+          event.preventDefault();
+          addShape(kind as PathShapeKind, event.clientX, event.clientY);
+        }
+      }}
+      className="relative size-full [&_.leaflet-control-attribution]:max-w-[calc(100%-16px)] [&_.leaflet-control-attribution]:whitespace-nowrap [&_.leaflet-control-attribution]:overflow-x-auto [&_.leaflet-control-attribution]:[scrollbar-width:none] [&_.leaflet-control-attribution::-webkit-scrollbar]:hidden [&_.leaflet-control-attribution]:text-[9px] [&_.leaflet-control-attribution_a]:text-[color:var(--color-ink)]"
+    >
       <div
         ref={container}
         className="size-full bg-[var(--color-paper)]"
-        role="region"
         aria-label="Map of detected person coordinates"
       />
+      {!props.compact && !error && (
+        <>
+          {toolbarHost &&
+            createPortal(
+              <ShapeToolbar disabled={planner.sending} onAdd={addShape} />,
+              toolbarHost,
+            )}
+          <MissionPathPanel planner={planner} />
+        </>
+      )}
       {error && (
         <p
           role="status"
-          className="absolute inset-x-2.5 top-1/2 z-[1000] bg-[var(--color-paper)] p-3 text-xs leading-relaxed text-[color:var(--color-ink)]/80"
+          className="absolute inset-x-2.5 top-1/2 z-[1000] bg-[var(--color-paper)] p-3 text-xs leading-relaxed text-[color:var(--color-ink)]/70"
         >
           Map could not load. Person coordinates remain available in the list.
         </p>

@@ -19,7 +19,7 @@ Use Feed controls to choose Human detected, No target, or Disconnected feed. Pau
 
 ## Live integration
 
-Select Live integration. The app listens for browser CustomEvents:
+The live thermal adapter connects automatically to the local relay. Start it in a second terminal with `npm run thermal:relay`, then launch the AI process with `--socket-url http://127.0.0.1:5000`. See [Live thermal feed](docs/THERMAL_SOCKET_FEED.md) for complete setup. The app also listens for browser CustomEvents:
 
 ```js
 window.dispatchEvent(new CustomEvent('vigil:frame', { detail: {
@@ -32,7 +32,7 @@ window.dispatchEvent(new CustomEvent('vigil:detection', { detail: {
 }}));
 ```
 
-The camera/backend adapter must convert raw thermal samples to an encoded image data URL. Coordinates are normalized 0–1, top-left origin. Events must carry matching frame IDs; mismatched results are withheld. Invalid bounding boxes are rejected. Send an empty detections array to report no target. Live palettes are supplied by the backend; palette controls apply only to simulation. No network transport or flight control is implemented.
+The camera/backend adapter must convert raw thermal samples to an encoded image data URL. Coordinates are normalized 0–1, top-left origin. Events must carry matching frame IDs; mismatched results are withheld. Invalid bounding boxes are rejected. Send an empty detections array to report no target. Live palettes are supplied by the backend; palette controls apply only to simulation. The dashboard now receives the Lepton AI producer through the local Socket.IO relay. See [Live thermal feed](docs/THERMAL_SOCKET_FEED.md) for startup and the producer contract. Mission upload is documented separately in [INAV shape missions](docs/INAV_SHAPE_MISSIONS.md).
 
 
 
@@ -56,7 +56,7 @@ The current `/` page renders `src/components/mission/MissionDashboard.tsx`, comp
 
 ### Person map and view switching
 
-Person records include numeric latitude and longitude in addition to their displayed coordinates. `PersonMap` uses Leaflet with selectable Esri street, topographic, and satellite tiles, renders all person markers, and synchronizes marker clicks with the person list. List selection centers the map and opens the coordinate popup. `MapArea` switches map and simulated thermal imagery between the main view and inset without unmounting the map; a ResizeObserver updates its dimensions. Clicking the thermal inset, the map inset expand badge, or the Swap views control switches views. The map supports mouse-wheel and trackpad zoom plus touch pinch zoom; the map inset expand badge leaves the map surface interactive. Live geolocation and thermal data remain future integrations.
+Person records include numeric latitude and longitude in addition to their displayed coordinates. `PersonMap` uses Leaflet with selectable Esri street, topographic, and satellite tiles, renders all person markers, and synchronizes marker clicks with the person list. List selection centers the map and opens the coordinate popup. `MapArea` switches map and simulated thermal imagery between the main view and inset without unmounting the map; a ResizeObserver updates its dimensions. Clicking the thermal inset, the map inset expand badge, or the Swap views control switches views. The map supports mouse-wheel and trackpad zoom plus touch pinch zoom; the map inset expand badge leaves the map surface interactive. Live thermal frames and detections use the Socket.IO adapter; geolocation requires synchronized drone telemetry and configured altitude/heading conventions.
 
 ### Local dummy data
 
