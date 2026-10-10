@@ -70,6 +70,15 @@ def parse_args() -> argparse.Namespace:
         help="random training scale gain; reduce this for very small native images",
     )
     parser.add_argument("--seed", type=int, default=26)
+    parser.add_argument(
+        "--epoch-fraction",
+        type=float,
+        default=1.0,
+        help=(
+            "fresh fraction of train images sampled each epoch; preserves the global "
+            "positive/negative ratio and balances source sequences"
+        ),
+    )
     parser.add_argument("--cache", action="store_true")
     parser.add_argument("--exist-ok", action="store_true")
     return parser.parse_args()
@@ -85,6 +94,8 @@ def main() -> None:
         raise SystemExit("--mosaic and --mixup must be between 0 and 1")
     if not 0.0 <= args.scale <= 1.0:
         raise SystemExit("--scale must be between 0 and 1")
+    if not 0.0 < args.epoch_fraction <= 1.0:
+        raise SystemExit("--epoch-fraction must be in (0, 1]")
 
     yaml_path = find_data_yaml(args.data)
     config = load_dataset_config(yaml_path)
@@ -124,9 +135,19 @@ def main() -> None:
             raise SystemExit("Ultralytics ignores --lr0 with optimizer=auto; select an optimizer")
         settings["lr0"] = args.lr0
 
-    print(f"Training on {train_count} images; validating on {val_count} images")
+    sampled_count = max(1, round(train_count * args.epoch_fraction))
+    print(
+        f"Training pool: {train_count} images; sampling {sampled_count} per epoch "
+        f"({args.epoch_fraction:.1%}); validating on all {val_count} images"
+    )
     print(f"Model: {args.model}; freeze={args.freeze}; device={args.device}")
-    model.train(**settings)
+    if args.epoch_fraction < 1.0:
+        from AI.scripts.epoch_sampler import make_resampled_detection_trainer
+
+        trainer = make_resampled_detection_trainer(args.epoch_fraction, args.seed)
+        model.train(trainer=trainer, **settings)
+    else:
+        model.train(**settings)
 
 
 if __name__ == "__main__":

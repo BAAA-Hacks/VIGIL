@@ -184,6 +184,26 @@ for fold in 0 1 2 3 4; do
 done
 ```
 
+For video-correlated or combined datasets, sample a fresh, source-balanced subset every epoch
+while still validating on the complete validation split:
+
+```bash
+python scripts/train.py \
+  --data datasets/wisard_5fold_lepton/fold_0/data.yaml \
+  --model yolo26s.pt \
+  --epochs 50 \
+  --batch 0.8 \
+  --optimizer AdamW \
+  --lr0 0.001 \
+  --epoch-fraction 0.20 \
+  --name lepton_fold_0_resampled
+```
+
+The sampler preserves the training pool's image-level positive/negative ratio, balances source
+sequences within each presence class, samples without replacement inside an epoch, and changes the
+sample deterministically each epoch. This is different from Ultralytics `fraction`, which selects
+a fixed subset.
+
 Optional two-stage run (5 frozen-backbone epochs, then 45 fully trainable epochs):
 
 ```bash
