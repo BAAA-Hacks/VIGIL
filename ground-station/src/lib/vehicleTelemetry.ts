@@ -33,6 +33,44 @@ export function isVehicleTelemetry(value: unknown): value is VehicleTelemetry {
     !(record.flight_mode === null || typeof record.flight_mode === "string")
   )
     return false;
+  const optionalNumbers = [
+    "speed_ms",
+    "course_deg",
+    "distance_home_m",
+    "pcb_temp_c",
+    "battery_pct",
+  ];
+  if (
+    !optionalNumbers.every(
+      (key) =>
+        record[key] === undefined ||
+        record[key] === null ||
+        finite(record[key]),
+    )
+  )
+    return false;
+  if (
+    ["speed_ms", "distance_home_m"].some(
+      (key) => typeof record[key] === "number" && record[key] < 0,
+    )
+  )
+    return false;
+  if (
+    typeof record.battery_pct === "number" &&
+    (record.battery_pct < 0 || record.battery_pct > 100)
+  )
+    return false;
+  if (record.home !== undefined && record.home !== null) {
+    if (typeof record.home !== "object") return false;
+    const home = record.home as Record<string, unknown>;
+    if (
+      !finite(home.lat) ||
+      !finite(home.lon) ||
+      Math.abs(home.lat as number) > 90 ||
+      Math.abs(home.lon as number) > 180
+    )
+      return false;
+  }
   if (record.link !== null) {
     if (typeof record.link !== "object" || !record.link) return false;
     const link = record.link as Record<string, unknown>;

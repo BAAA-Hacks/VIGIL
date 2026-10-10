@@ -20,6 +20,7 @@ interface MapAreaProps {
 
 export function MapArea(props: MapAreaProps) {
   const [thermalPrimary, setThermalPrimary] = useState(false);
+  const [cornerMinimized, setCornerMinimized] = useState(false);
   const [layer, setLayer] = useState<MapView>("topographic");
   const swap = () => setThermalPrimary((value) => !value);
 
@@ -35,15 +36,29 @@ export function MapArea(props: MapAreaProps) {
           type="button"
           className="flex items-center gap-1.5 border-0 bg-transparent p-1.5 text-[10px] text-[color:var(--color-paper)]/80"
           onClick={swap}
-          aria-label="Swap map and thermal camera"
+          aria-label="Swap views between map and thermal camera"
         >
           <ArrowLeftRight size={13} /> Swap views
         </button>
       </div>
-      <ViewerPane primary={!thermalPrimary} kind="map" onPromote={swap}>
+      <ViewerPane
+        primary={!thermalPrimary}
+        kind="map"
+        minimized={cornerMinimized}
+        onMinimize={() => setCornerMinimized(true)}
+        onRestore={() => setCornerMinimized(false)}
+        onPromote={swap}
+      >
         <PersonMap {...props} compact={thermalPrimary} layer={layer} />
       </ViewerPane>
-      <ViewerPane primary={thermalPrimary} kind="thermal" onPromote={swap}>
+      <ViewerPane
+        primary={thermalPrimary}
+        kind="thermal"
+        minimized={cornerMinimized}
+        onMinimize={() => setCornerMinimized(true)}
+        onRestore={() => setCornerMinimized(false)}
+        onPromote={swap}
+      >
         <ThermalImage
           frame={props.frame ?? null}
           detection={props.detection ?? null}

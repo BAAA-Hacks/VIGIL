@@ -6,6 +6,11 @@ function formatNumber(value: number | null | undefined, unit: string) {
   return value == null ? unavailable : value.toFixed(1) + " " + unit;
 }
 
+function formatSignedAngle(value: number | null | undefined) {
+  if (value == null) return unavailable;
+  return formatNumber(((((value + 180) % 360) + 360) % 360) - 180, "°");
+}
+
 function formatFix(value: boolean | null) {
   return value === null ? "Unknown" : value ? "Valid" : "No fix";
 }
@@ -33,7 +38,10 @@ export function getDroneReadings(
 
   return [
     { label: "Battery", value: formatNumber(data?.battery_v, "V") },
-    { label: "Altitude", value: formatNumber(data?.altitude_m, "m") },
+    {
+      label: "Altitude (sea level)",
+      value: formatNumber(data?.altitude_m, "m"),
+    },
     {
       label: data?.yaw_reference === "relative" ? "Relative yaw" : "Yaw",
       value: formatNumber(data?.yaw_deg, "°"),
@@ -41,11 +49,12 @@ export function getDroneReadings(
     {
       label: "Roll / pitch",
       value: data
-        ? formatNumber(data.roll_deg, "°") +
+        ? formatSignedAngle(data.roll_deg) +
           " / " +
-          formatNumber(data.pitch_deg, "°")
+          formatSignedAngle(data.pitch_deg)
         : unavailable,
     },
+    { label: "Course", value: formatNumber(data?.course_deg, "°") },
     { label: "Climb rate", value: formatNumber(data?.climb_ms, "m/s") },
     { label: "Coordinates", value: coordinates },
     {
@@ -54,10 +63,13 @@ export function getDroneReadings(
         ? armed + " · " + (data.flight_mode ?? "Unknown")
         : unavailable,
     },
-    { label: "Ground speed", value: "Not supplied" },
-    { label: "Distance from home", value: "Not supplied" },
+    { label: "Ground speed", value: formatNumber(data?.speed_ms, "m/s") },
+    {
+      label: "Distance from home",
+      value: formatNumber(data?.distance_home_m, "m"),
+    },
     { label: "Flight time", value: flightTime },
-    { label: "PCB temperature", value: "Not supplied" },
+    { label: "PCB temperature", value: formatNumber(data?.pcb_temp_c, "°C") },
     {
       label: "Satellites / GPS fix",
       value: data

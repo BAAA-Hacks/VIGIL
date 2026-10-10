@@ -187,6 +187,16 @@ class Synthetic(unittest.TestCase):
                 snaps.append(st.snapshot(now))
         return snaps
 
+    def test_synthetic_attitude_is_small_and_changes_gradually(self):
+        snaps = self.run_mission()
+        self.assertLessEqual(max(abs(s["roll_deg"]) for s in snaps), 0.5)
+        self.assertLessEqual(max(abs(s["pitch_deg"]) for s in snaps), 3.4)
+        for a, b in zip(snaps, snaps[1:]):
+            self.assertLessEqual(abs(a["roll_deg"] - b["roll_deg"]), 0.21)
+            self.assertLessEqual(abs(a["pitch_deg"] - b["pitch_deg"]), 0.21)
+        self.assertTrue(all(38 <= s["pcb_temp_c"] <= 43 for s in snaps))
+        self.assertIsNone(TelemetryState(source="pocket").snapshot(1.0)["pcb_temp_c"])
+
     def test_mission_exercises_every_field(self):
         snaps = self.run_mission()
         for key in ("armed", "battery_v", "roll_deg", "pitch_deg", "yaw_deg", "altitude_m", "lat", "lon",

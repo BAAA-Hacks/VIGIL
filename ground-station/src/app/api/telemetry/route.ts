@@ -19,7 +19,7 @@ export async function GET(request: Request) {
       const child = spawn(
         /* turbopackIgnore: true */
         process.env.PYTHON_EXECUTABLE || "python",
-        [script, "--synthetic"],
+        [script, "--synthetic", "--relative-yaw"],
         { cwd: path.dirname(script), windowsHide: true },
       );
       const lines = createInterface({ input: child.stdout });

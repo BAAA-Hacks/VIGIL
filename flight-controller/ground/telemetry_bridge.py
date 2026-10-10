@@ -71,6 +71,7 @@ class TelemetryState:
         self.relative_yaw = relative_yaw
         self.source = source
         self.latest: dict[type, _Timed] = {}
+        self.synthetic_started: Optional[float] = None
         self.last_drone_frame: Optional[float] = None
         self.armed_since: Optional[float] = None     # ground time of the last arm edge
         self.home: Optional[tuple[float, float]] = None  # first valid fix after arming (like INAV's home)
@@ -116,10 +117,18 @@ class TelemetryState:
         battery_present = battery is not None and battery.voltage_v >= BATTERY_PRESENT_ABOVE_V
         here = (gps.lat, gps.lon) if fix_valid else None
 
+        # Explicit fake PCB reading only for the synthetic source; live CRSF has no PCB sensor.
+        pcb_temp = None
+        if self.source == "synthetic":
+            if self.synthetic_started is None:
+                self.synthetic_started = now
+            pcb_temp = round(38.0 + min(5.0, max(0.0, now - self.synthetic_started) * 0.025), 1)
+
         msg = {
             "timestamp_ms": int(time.time() * 1000),   # ground receive time
             "armed": None if mode is None else mode.mode not in DISARMED_MODES,
             "battery_v": round(battery.voltage_v, 2) if battery_present else None,
+            "pcb_temp_c": pcb_temp,
             "roll_deg": None if attitude is None else round(attitude.roll_deg, 1),
             "pitch_deg": None if attitude is None else round(attitude.pitch_deg, 1),
             "yaw_deg": None,
@@ -213,6 +222,9 @@ class SyntheticSource:
     def __init__(self) -> None:
         self.t0 = time.monotonic()
         self.cycle = sum(seg[0] for seg in self.SEGMENTS)
+        self._pitch_deg = 0.0
+        self._roll_deg = 0.0
+        self._last_attitude_time = self.t0
 
     def _state(self, t: float) -> dict:
         start, pos, yaw, armed_s = 0.0, (0.0, 0.0, 0.0), 0.0, 0.0
@@ -237,15 +249,23 @@ class SyntheticSource:
 
     def read(self, _n: int) -> bytes:
         time.sleep(0.05)
-        t = (time.monotonic() - self.t0) % self.cycle
+        now = time.monotonic()
+        t = (now - self.t0) % self.cycle
         if self.DROPOUT[0] <= t < self.DROPOUT[1]:
             return b""
         s = self._state(t)
 
         # Attitude: nose down when moving forward, plus a little hover wobble while armed.
-        wobble = 1.5 if s["armed"] else 0.0
-        pitch = -2.0 * s["speed"] + wobble * math.sin(1.3 * t)
-        roll = wobble * math.sin(0.9 * t + 1.0)
+        wobble = 0.3 if s["armed"] else 0.0
+        target_pitch = -min(3.0, 0.6 * s["speed"]) + wobble * math.sin(0.2 * t)
+        target_roll = (0.4 if s["armed"] else 0.0) * math.sin(0.25 * t + 1.0)
+        # Limit attitude changes to 0.6 deg/s, including mission boundaries/dropout recovery.
+        dt = max(0.0, min(0.2, now - self._last_attitude_time))
+        self._last_attitude_time = now
+        step = 0.6 * dt
+        self._pitch_deg += max(-step, min(step, target_pitch - self._pitch_deg))
+        self._roll_deg += max(-step, min(step, target_roll - self._roll_deg))
+        pitch, roll = self._pitch_deg, self._roll_deg
         yaw = (s["yaw"] + 180.0) % 360.0 - 180.0  # INAV sends -180..180
         att = crsf.build_frame(crsf.ATTITUDE, b"".join(
             int(round(math.radians(a) * 10000)).to_bytes(2, "big", signed=True) for a in (pitch, roll, yaw)))

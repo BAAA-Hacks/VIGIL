@@ -22,8 +22,8 @@ export function PinsPanel({
   reasons,
 }: PinsPanelProps) {
   return (
-    <MissionPanel title="Marked locations">
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto [scrollbar-width:thin] [scrollbar-color:color-mix(in_srgb,_var(--color-ink)_45%,_transparent)_var(--color-paper)]">
+    <MissionPanel title="Marked locations" darkHeader>
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {settings}
         {message && (
           <p

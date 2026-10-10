@@ -102,3 +102,7 @@ All replay values are under pin_test in the existing gitignored src/data/dummy-d
 
 A blue square D pin marks fresh valid drone GPS, with coordinates and sea-level altitude in its popup. Person pins remain numbered circles. Stale/invalid drone positions are removed. Test imagery and temperature labels are synthetic, not camera measurements.
 
+
+Drone telemetry extras speed_ms, course_deg, distance_home_m, pcb_temp_c, battery_pct and home are optional and validated. The dashboard displays bridge-provided speed/course/distance/PCB temperature; unsupported live sensors remain unavailable. Roll and pitch display in signed degrees. The pin test models a steady 10 m hover (0 m/s, 0 m from home, 0.4° roll, -0.6° pitch, HOLD, PCB 38.5°C). The Python synthetic mission retains its CRSF decoder path but now uses slow, small attitude changes and a synthetic-only PCB warmup (38–43°C).
+
+Start test launches the synthetic bridge with --relative-yaw so its yaw reading is available and explicitly labelled relative. Stop/restart any running test stream to load generator changes.

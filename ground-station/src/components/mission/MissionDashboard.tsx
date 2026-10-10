@@ -36,7 +36,12 @@ export function MissionDashboard() {
   return (
     <div className="bg-[var(--color-paper)] text-[color:var(--color-ink)] [font-family:Arial,Helvetica,sans-serif] min-h-screen flex flex-col">
       <MissionHeader />
-      <div className="grid grid-cols-1 gap-4 p-4 lg:p-5 lg:grid-cols-12 lg:grid-rows-[minmax(400px,1fr)_auto] lg:min-h-[700px] lg:h-[calc(100vh-72px)]">
+      <h1 className="sr-only">VIGIL search and rescue ground station</h1>
+      <main
+        id="mission-content"
+        tabIndex={-1}
+        className="grid grid-cols-1 gap-4 p-4 lg:p-5 lg:grid-cols-12 lg:grid-rows-[minmax(400px,1fr)_auto] lg:min-h-[700px] lg:h-[calc(100vh-72px)]"
+      >
         <div className="min-h-[400px] lg:col-span-8 lg:min-h-0">
           <MapArea
             pins={pins}
@@ -68,14 +73,14 @@ export function MissionDashboard() {
         <div className="lg:col-span-12">
           <DroneInfoPanel
             telemetry={locations.telemetry ?? vehicle.data}
-            state={pinTest.enabled ? "Connected · pin test" : vehicle.state}
+            state={pinTest.enabled ? "Connected" : vehicle.state}
             stale={pinTest.enabled ? false : vehicle.stale}
             flightTime={
               pinTest.enabled ? pinTest.flightTime : vehicle.flightTime
             }
           />
         </div>
-      </div>
+      </main>
       <TestDataToggle
         enabled={vehicle.enabled}
         onToggle={() => {

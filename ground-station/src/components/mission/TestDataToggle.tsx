@@ -24,9 +24,7 @@ export function TestDataToggle({
         className="flex items-center gap-1.5 rounded-[3px] border border-[color:var(--color-ink)]/25 bg-[var(--color-paper)]/94 px-2 py-[5px] text-[10px] text-[color:var(--color-ink)]/70 hover:border-[color:var(--color-ink)]/65 hover:text-[color:var(--color-ink)] focus-visible:outline-2 focus-visible:outline-[color:var(--color-ink)] focus-visible:outline-offset-3"
         onClick={onToggle}
         aria-pressed={enabled}
-        aria-label={
-          enabled ? "Stop synthetic test data" : "Start synthetic test data"
-        }
+        aria-label={enabled ? "Stop test data" : "Start test data"}
         title={
           enabled ? "Stop synthetic test data" : "Start synthetic test data"
         }

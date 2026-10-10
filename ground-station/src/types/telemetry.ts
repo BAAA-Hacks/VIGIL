@@ -22,4 +22,10 @@ export interface VehicleTelemetry {
   data_age_ms: number | null;
   source: string;
   yaw_reference?: string;
+  speed_ms?: number | null;
+  course_deg?: number | null;
+  distance_home_m?: number | null;
+  pcb_temp_c?: number | null;
+  battery_pct?: number | null;
+  home?: { lat: number; lon: number } | null;
 }
