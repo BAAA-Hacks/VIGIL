@@ -204,6 +204,7 @@ sequences within each presence class, samples without replacement inside an epoc
 sample deterministically each epoch. This is different from Ultralytics `fraction`, which selects
 a fixed subset.
 
+<<<<<<< Updated upstream
 For hard-negative fine-tuning, mine labeled-negative training frames and request an explicit
 positive/hard-negative/ordinary-negative epoch mix:
 
@@ -232,6 +233,24 @@ With `--selection-metric presence_f1`, validation logs frame-presence precision,
 specificity, and false-positive-frame rate at the requested confidence. `best.pt` and early
 stopping use presence F1 instead of Ultralytics box-mAP fitness. Full ordered-video temporal
 metrics remain a post-training evaluation.
+=======
+For a closer-range experiment, add one medium-FOV crop for every positive WiSARD and POP training
+image. Crops are taken from the original-resolution sources before the 160 x 120 conversion;
+validation and locked-test images remain unchanged:
+
+```bash
+python -m AI.scripts.prepare_medium_crops \
+  AI/datasets/thermal_mega_5fold_lepton \
+  AI/datasets/wisard_full_ir_5fold \
+  /data/POP/train \
+  AI/datasets/thermal_mega_5fold_lepton_medium_crops \
+  --crop-scale 0.5
+```
+
+The crop expands when necessary to retain every labeled person in a frame, so crowded or widely
+separated scenes may receive less magnification than the nominal 2x linear scale. Crop variants
+are added only to each fold's training list.
+>>>>>>> Stashed changes
 
 Optional two-stage run (5 frozen-backbone epochs, then 45 fully trainable epochs):
 

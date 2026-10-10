@@ -18,9 +18,34 @@ from AI.scripts.dataset_utils import (
     split_images,
 )
 from AI.scripts.select_holdout_sequences import choose_holdout
+from AI.scripts.prepare_medium_crops import crop_boxes, medium_crop_bounds
 
 
 class DatasetPreflightTests(unittest.TestCase):
+    def test_medium_crop_enlarges_centered_person_and_preserves_aspect(self) -> None:
+        box = YoloBox(0, 0.5, 0.5, 0.1, 0.2)
+        bounds = medium_crop_bounds(640, 512, [box], 0.5, 4 / 3, 0.15)
+        left, top, right, bottom = bounds
+        self.assertAlmostEqual((right - left) / (bottom - top), 4 / 3, places=2)
+        cropped = crop_boxes([box], 640, 512, bounds, 0.5)
+        self.assertEqual(len(cropped), 1)
+        self.assertGreater(cropped[0].width, box.width)
+        self.assertGreater(cropped[0].height, box.height)
+
+    def test_medium_crop_expands_to_keep_separated_people(self) -> None:
+        boxes = [
+            YoloBox(0, 0.1, 0.5, 0.1, 0.2),
+            YoloBox(0, 0.9, 0.5, 0.1, 0.2),
+        ]
+        bounds = medium_crop_bounds(640, 480, boxes, 0.5, 4 / 3, 0.1)
+        cropped = crop_boxes(boxes, 640, 480, bounds, 0.99)
+        self.assertEqual(len(cropped), 2)
+
+    def test_crop_boxes_drops_mostly_hidden_box(self) -> None:
+        box = YoloBox(0, 0.75, 0.5, 0.5, 0.5)
+        cropped = crop_boxes([box], 100, 100, (0, 0, 40, 100), 0.5)
+        self.assertEqual(cropped, [])
+
     def test_source_frame_id_accepts_space_before_frame_number(self) -> None:
         sequence, frame = source_frame_id(Path("flight__FLIR_1_ 0097.jpg"))
         self.assertEqual(sequence, "flight__FLIR_1")
