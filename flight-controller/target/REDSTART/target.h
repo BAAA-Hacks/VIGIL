@@ -29,12 +29,16 @@
 #define LSM6DXX_SPI_BUS         BUS_SPI1
 // INT1 (data-ready) is wired to PA1, but INAV polls the gyro; unused for now.
 
-// *************** I2C1: BMP581 baro (driver in M3), future magnetometer *********
+// *************** I2C1: BMP581 baro, future magnetometer *********
 #define USE_I2C
 #define USE_I2C_DEVICE_1
 #define I2C1_SCL                PB6
 #define I2C1_SDA                PB7
 #define DEFAULT_I2C_BUS         BUS_I2C1
+
+#define USE_BARO
+#define BARO_I2C_BUS            BUS_I2C1
+#define USE_BARO_BMP581         // patches/0004 (Bosch BMP581, address 0x47 or 0x46)
 
 #define USE_MAG
 #define MAG_I2C_BUS             BUS_I2C1

@@ -1,0 +1,305 @@
+--- a/src/main/CMakeLists.txt
++++ b/src/main/CMakeLists.txt
+@@ -107,6 +107,8 @@
+     drivers/barometer/barometer_bmp388.h
+     drivers/barometer/barometer_dps310.c
+     drivers/barometer/barometer_dps310.h
++    drivers/barometer/barometer_bmp581.c
++    drivers/barometer/barometer_bmp581.h
+     drivers/barometer/barometer_fake.c
+     drivers/barometer/barometer_fake.h
+     drivers/barometer/barometer_lps25h.c
+--- a/src/main/drivers/bus.h
++++ b/src/main/drivers/bus.h
+@@ -98,6 +98,7 @@
+     DEVHW_BMP388,
+     DEVHW_DPS310,
+     DEVHW_B2SMPB,
++    DEVHW_BMP581,
+ 
+     /* Compass chips */
+     DEVHW_HMC5883,
+--- a/src/main/fc/settings.yaml
++++ b/src/main/fc/settings.yaml
+@@ -16,7 +16,7 @@
+     values: ["NONE", "CXOF", "MSP", "FAKE"]
+     enum: opticalFlowSensor_e
+   - name: baro_hardware
+-    values: ["NONE", "AUTO", "BMP085", "MS5611", "BMP280", "MS5607", "LPS25H", "SPL06", "BMP388", "DPS310", "B2SMPB", "MSP", "FAKE"]
++    values: ["NONE", "AUTO", "BMP085", "MS5611", "BMP280", "MS5607", "LPS25H", "SPL06", "BMP388", "DPS310", "B2SMPB", "MSP", "FAKE", "BMP581"]
+     enum: baroSensor_e
+   - name: pitot_hardware
+     values: ["NONE", "AUTO", "MS4525", "ADC", "VIRTUAL", "FAKE", "MSP", "DLVR-L10D"]
+--- a/src/main/io/osd.c
++++ b/src/main/io/osd.c
+@@ -211,7 +211,9 @@
+ 
+ #define AH_MAX_PITCH_DEFAULT 20 // Specify default maximum AHI pitch value displayed (degrees)
+ 
+-PG_REGISTER_WITH_RESET_TEMPLATE(osdConfig_t, osdConfig, PG_OSD_CONFIG, 9);
++// Version bumped from 9: enabling USE_BARO on a target adds fields to osdConfig_t, so
++// settings saved without it must be reset rather than read with the wrong layout.
++PG_REGISTER_WITH_RESET_TEMPLATE(osdConfig_t, osdConfig, PG_OSD_CONFIG, 10);
+ PG_REGISTER_WITH_RESET_FN(osdLayoutsConfig_t, osdLayoutsConfig, PG_OSD_LAYOUTS_CONFIG, 1);
+ 
+ void osdStartedSaveProcess(void) {
+--- a/src/main/sensors/barometer.c
++++ b/src/main/sensors/barometer.c
+@@ -40,6 +40,7 @@
+ #include "drivers/barometer/barometer_ms56xx.h"
+ #include "drivers/barometer/barometer_spl06.h"
+ #include "drivers/barometer/barometer_dps310.h"
++#include "drivers/barometer/barometer_bmp581.h"
+ #include "drivers/barometer/barometer_2smpb_02b.h"
+ #include "drivers/barometer/barometer_msp.h"
+ #include "drivers/time.h"
+@@ -189,6 +190,19 @@
+             break;
+         }
+ #endif
++        /* If we are asked for a specific sensor - break out, otherwise - fall through and continue */
++        if (baroHardwareToUse != BARO_AUTODETECT) {
++            break;
++        }
++        FALLTHROUGH;
++
++    case BARO_BMP581:
++#if defined(USE_BARO_BMP581)
++        if (baroBMP581Detect(dev)) {
++            baroHardware = BARO_BMP581;
++            break;
++        }
++#endif
+         /* If we are asked for a specific sensor - break out, otherwise - fall through and continue */
+         if (baroHardwareToUse != BARO_AUTODETECT) {
+             break;
+--- a/src/main/sensors/barometer.h
++++ b/src/main/sensors/barometer.h
+@@ -35,7 +35,8 @@
+     BARO_B2SMPB = 10,
+     BARO_MSP    = 11,
+     BARO_FAKE   = 12,
+-    BARO_MAX    = BARO_FAKE
++    BARO_BMP581 = 13,
++    BARO_MAX    = BARO_BMP581
+ } baroSensor_e;
+ 
+ typedef struct baro_s {
+--- a/src/main/target/common_hardware.c
++++ b/src/main/target/common_hardware.c
+@@ -154,6 +154,14 @@
+     #endif
+ #endif
+ 
++#if defined(USE_BARO_BMP581)
++    #if !defined(BMP581_I2C_BUS)
++        #define BMP581_I2C_BUS BARO_I2C_BUS
++    #endif
++    BUSDEV_REGISTER_I2C_TAG(busdev_bmp581,      DEVHW_BMP581,   BMP581_I2C_BUS,     0x47,   NONE,   0,  DEVFLAGS_NONE,  0);
++    BUSDEV_REGISTER_I2C_TAG(busdev_bmp581_alt,  DEVHW_BMP581,   BMP581_I2C_BUS,     0x46,   NONE,   1,  DEVFLAGS_NONE,  0);
++#endif
++
+ #if defined(USE_BARO_DPS310)
+     #if defined(DPS310_SPI_BUS)
+     BUSDEV_REGISTER_SPI(busdev_dps310,      DEVHW_DPS310,       DPS310_SPI_BUS,     DPS310_CS_PIN,      NONE,           DEVFLAGS_NONE, 0);
+--- /dev/null
++++ b/src/main/drivers/barometer/barometer_bmp581.h
+@@ -0,0 +1,20 @@
++/*
++ * This file is part of INAV.
++ *
++ * INAV is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * INAV is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with INAV.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++#pragma once
++
++bool baroBMP581Detect(baroDev_t *baro);
+--- /dev/null
++++ b/src/main/drivers/barometer/barometer_bmp581.c
+@@ -0,0 +1,175 @@
++/*
++ * This file is part of INAV.
++ *
++ * INAV is free software: you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation, either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * INAV is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with INAV.  If not, see <http://www.gnu.org/licenses/>.
++ */
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#include <platform.h>
++
++#include "common/utils.h"
++
++#include "drivers/bus.h"
++#include "drivers/time.h"
++#include "drivers/barometer/barometer.h"
++#include "drivers/barometer/barometer_bmp581.h"
++
++// Bosch BMP581/BMP585 (datasheet BST-BMP581-DS004). The chip outputs compensated
++// values, so no calibration coefficients are needed: pressure = raw / 64 Pa,
++// temperature = raw / 65536 degC.
++
++#if defined(USE_BARO) && defined(USE_BARO_BMP581)
++
++#define BMP581_REG_CHIP_ID          0x01
++#define BMP581_REG_TEMP_DATA_XLSB   0x1D    // followed by TEMP LSB/MSB, PRESS XLSB/LSB/MSB
++#define BMP581_REG_INT_STATUS       0x27
++#define BMP581_REG_STATUS           0x28
++#define BMP581_REG_OSR_CONFIG       0x36
++#define BMP581_REG_ODR_CONFIG       0x37
++#define BMP581_REG_OSR_EFF          0x38
++#define BMP581_REG_CMD              0x7E
++
++#define BMP581_CHIP_ID              0x50
++#define BMP585_CHIP_ID              0x51
++
++#define BMP581_CMD_SOFT_RESET       0xB6
++
++#define BMP581_INT_STATUS_POR       (1 << 4)
++#define BMP581_STATUS_NVM_RDY       (1 << 1)
++#define BMP581_STATUS_NVM_ERR       (1 << 2)
++
++// OSR_CONFIG: press_en, pressure 16x oversampling, temperature 1x
++#define BMP581_OSR_PRESS_EN         (1 << 6)
++#define BMP581_OSR_P_16X            (4 << 3)
++#define BMP581_OSR_T_1X             0
++
++// ODR_CONFIG: deep standby disabled, 50 Hz, power mode
++#define BMP581_ODR_DEEP_DIS         (1 << 7)
++#define BMP581_ODR_50_HZ            (0x0F << 2)
++#define BMP581_PWR_STANDBY          0x00
++#define BMP581_PWR_NORMAL           0x01
++
++#define BMP581_OSR_EFF_ODR_VALID    (1 << 7)
++
++#define BMP581_SAMPLE_RATE_HZ       50
++
++static float pressurePa;
++static float temperatureC;
++
++static uint8_t registerRead(busDevice_t *busDev, uint8_t reg)
++{
++    uint8_t value = 0;
++    busRead(busDev, reg, &value);
++    return value;
++}
++
++static bool deviceConfigure(busDevice_t *busDev)
++{
++    busWrite(busDev, BMP581_REG_CMD, BMP581_CMD_SOFT_RESET);
++    delay(5);
++
++    if ((registerRead(busDev, BMP581_REG_INT_STATUS) & BMP581_INT_STATUS_POR) == 0) {
++        return false;
++    }
++    const uint8_t status = registerRead(busDev, BMP581_REG_STATUS);
++    if ((status & BMP581_STATUS_NVM_RDY) == 0 || (status & BMP581_STATUS_NVM_ERR)) {
++        return false;
++    }
++
++    // Configure in standby, then start continuous (normal mode) measurements
++    busWrite(busDev, BMP581_REG_ODR_CONFIG, BMP581_ODR_DEEP_DIS | BMP581_ODR_50_HZ | BMP581_PWR_STANDBY);
++    delay(5);
++    busWrite(busDev, BMP581_REG_OSR_CONFIG, BMP581_OSR_PRESS_EN | BMP581_OSR_P_16X | BMP581_OSR_T_1X);
++    busWrite(busDev, BMP581_REG_ODR_CONFIG, BMP581_ODR_DEEP_DIS | BMP581_ODR_50_HZ | BMP581_PWR_NORMAL);
++    delay(5);
++
++    // The chip reports whether the oversampling fits in the chosen output rate
++    return (registerRead(busDev, BMP581_REG_OSR_EFF) & BMP581_OSR_EFF_ODR_VALID) != 0;
++}
++
++static bool deviceReadMeasurement(baroDev_t *baro)
++{
++    uint8_t buf[6];
++    if (!busReadBuf(baro->busDev, BMP581_REG_TEMP_DATA_XLSB, buf, sizeof(buf))) {
++        return false;
++    }
++
++    const uint32_t rawPress = ((uint32_t)buf[5] << 16) | ((uint32_t)buf[4] << 8) | buf[3];
++    if (rawPress == 0) {
++        return false;   // no conversion yet
++    }
++
++    // Temperature is a signed 24-bit value: build it in the top bits, then shift back down
++    const int32_t rawTemp = (int32_t)(((uint32_t)buf[2] << 24) | ((uint32_t)buf[1] << 16) | ((uint32_t)buf[0] << 8)) >> 8;
++
++    pressurePa = rawPress / 64.0f;
++    temperatureC = rawTemp / 65536.0f;
++    return true;
++}
++
++static bool deviceCalculate(baroDev_t *baro, int32_t *pressure, int32_t *temperature)
++{
++    UNUSED(baro);
++
++    if (pressure) {
++        *pressure = (int32_t)pressurePa;
++    }
++    if (temperature) {
++        *temperature = (int32_t)(temperatureC * 100);   // centidegrees
++    }
++    return true;
++}
++
++static bool deviceDetect(busDevice_t *busDev)
++{
++    for (int retry = 0; retry < 5; retry++) {
++        uint8_t chipId = 0;
++
++        delay(10);
++        if (busRead(busDev, BMP581_REG_CHIP_ID, &chipId) && (chipId == BMP581_CHIP_ID || chipId == BMP585_CHIP_ID)) {
++            return true;
++        }
++    }
++    return false;
++}
++
++bool baroBMP581Detect(baroDev_t *baro)
++{
++    // tag 0 = address 0x47 (breakout default), tag 1 = 0x46 (SDO pulled low)
++    for (uint8_t tag = 0; tag < 2; tag++) {
++        baro->busDev = busDeviceInit(BUSTYPE_ANY, DEVHW_BMP581, tag, OWNER_BARO);
++        if (baro->busDev == NULL) {
++            continue;
++        }
++        if (deviceDetect(baro->busDev) && deviceConfigure(baro->busDev)) {
++            baro->ut_delay = 0;
++            baro->start_ut = NULL;
++            baro->get_ut = NULL;
++
++            baro->up_delay = 1000000 / BMP581_SAMPLE_RATE_HZ / 2;   // poll at twice the output rate
++            baro->start_up = NULL;
++            baro->get_up = deviceReadMeasurement;
++
++            baro->calculate = deviceCalculate;
++            return true;
++        }
++        busDeviceDeInit(baro->busDev);
++    }
++    baro->busDev = NULL;
++    return false;
++}
++
++#endif
