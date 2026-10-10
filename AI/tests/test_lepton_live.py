@@ -11,6 +11,7 @@ from AI.scripts.lepton_live import (
     LeptonFrame,
     center_temperature_c,
     feet_visible,
+    hottest_temperature_c,
     normalize_frame,
     read_frame,
 )
@@ -36,6 +37,14 @@ class LeptonLiveTests(unittest.TestCase):
         relative = LeptonFrame(1, 1, 160, 120, 0, 65535, 0, pixels)
         self.assertEqual(center_temperature_c(tlinear, [0.4, 0.4, 0.6, 0.6]), 26.85)
         self.assertIsNone(center_temperature_c(relative, [0.4, 0.4, 0.6, 0.6]))
+
+    def test_hottest_temperature_flags_hot_objects_inside_box(self) -> None:
+        pixels = np.full((120, 160), int((30 + 273.15) * 100), dtype=np.uint16)
+        pixels[50:60, 70:80] = int((70 + 273.15) * 100)
+        tlinear = LeptonFrame(1, 1, 160, 120, 0, 65535, 1, pixels)
+        self.assertGreater(hottest_temperature_c(tlinear, [0.4, 0.38, 0.52, 0.52]), 60)
+        self.assertLess(hottest_temperature_c(tlinear, [0.0, 0.0, 0.2, 0.2]), 31)
+        self.assertIsNone(hottest_temperature_c(LeptonFrame(1, 1, 160, 120, 0, 65535, 0, pixels), [0, 0, 1, 1]))
 
     def test_feet_visibility_is_conservative_at_image_edges(self) -> None:
         self.assertTrue(feet_visible([0.2, 0.2, 0.8, 0.9], 0.01))

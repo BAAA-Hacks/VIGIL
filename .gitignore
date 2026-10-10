@@ -441,8 +441,8 @@ runs/
 # Reviewed checkpoints shared through regular Git (kept below GitHub's file-size limit).
 !AI/checkpoints/
 !AI/checkpoints/thermal_mega_medium_crop_fold0_best.pt
-!AI/checkpoints/thermal_medium_range_yolo26m_best.pt
 !AI/checkpoints/thermal_medium_range_yolo26s_p2_best.pt
+!AI/checkpoints/thermal_medium_range_yolo26s_p2_closeup_blur_best.pt
 
 # Editor settings are personal; keep the whole folder out of the repo
 .vscode/
@@ -456,3 +456,7 @@ dist/
 
 *.tsbuildinfo
 next-env.d.ts
+
+# Live session recordings (lepton_live --record)
+AI/recordings/
+*.zip

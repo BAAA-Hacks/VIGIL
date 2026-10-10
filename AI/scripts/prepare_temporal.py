@@ -8,7 +8,7 @@ geometry as frame t:
   - WiSARD medium crops: neighbours are re-cropped from the original-resolution source
     with frame t's crop window (crop windows follow the target, so stacking neighbouring
     crop files directly would invent motion).
-  - POP images are stills, so they are symlinked unchanged (Ultralytics replicates
+  - POP and external still datasets are symlinked unchanged (Ultralytics replicates
     grayscale to three identical channels: a "no motion" example).
 Frames with no neighbour within --max-gap are replicated, which also teaches the model
 to fall back to appearance alone.
@@ -96,6 +96,8 @@ def neighbour(frames: dict[int, Path], frame: int, offset: int, max_gap: int) ->
 
 def classify(path: Path, source_root: Path) -> str:
     text = str(path)
+    if "/external/" in text:
+        return "external_stills"
     if "/medium_crops/wisard/" in text:
         return "wisard_crops"
     if "/medium_crops/pop/" in text:
@@ -259,10 +261,10 @@ def main() -> None:
             if done % 5000 == 0:
                 print(f"  {done}/{len(jobs)} temporal images")
 
-    for kind in ("wisard_full", "wisard_crops", "pop_full", "pop_crops"):
+    for kind in ("wisard_full", "wisard_crops", "pop_full", "pop_crops", "external_stills"):
         for path in by_kind[kind]:
             target = mirrored(path, kind)
-            if kind.startswith("pop"):
+            if kind.startswith("pop") or kind == "external_stills":
                 link(path, target)
             label = label_path_for_image(path)
             target_label = label_path_for_image(target)
@@ -277,7 +279,7 @@ def main() -> None:
         "frame_step": args.frame_step,
         "max_gap": max_gap,
         "align": args.align,
-        "stills_replicated": ["pop_full", "pop_crops"],
+        "stills_replicated": ["pop_full", "pop_crops", "external_stills"],
         "source_folds": str(source_root),
     }
     fold_reports = []
