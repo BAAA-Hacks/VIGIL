@@ -426,3 +426,13 @@ FodyWeavers.xsd
 
 # Official VS Code C# Dev Kit Extension exclusion
 #*.lscache
+
+# VIGIL local Python/data/model artifacts
+.venv/
+venv/
+datasets/
+models/
+reports/
+dataset_inspection/
+evaluation.json
+runs/
