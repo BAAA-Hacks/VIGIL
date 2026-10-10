@@ -1,0 +1,47 @@
+--- a/src/main/drivers/accgyro/accgyro_lsm6dxx.c
++++ b/src/main/drivers/accgyro/accgyro_lsm6dxx.c
+@@ -49,9 +49,17 @@
+ #define LSM6DSO_CHIP_ID 0x6C
+ #define LSM6DSL_CHIP_ID 0x6A
+ #define LSM6DS3_CHIP_ID 0x69
++#define ISM330DHCX_CHIP_ID 0x6B // Redstart: register-compatible with the LSM6DSO config path
+ 
+ static uint8_t lsm6dID = 0x6C;
+ 
++// LSM6DSO and ISM330DHCX share the 3-bit gyro LPF1 FTYPE field and CTRL9_XL bit 1
++// (I3C_disable on the LSM6DSO, DEVICE_CONF on the ISM330DHCX, recommended set to 1).
++static bool lsm6dxxIsDsoFamily(void)
++{
++    return lsm6dID == LSM6DSO_CHIP_ID || lsm6dID == ISM330DHCX_CHIP_ID;
++}
++
+ static void lsm6dxxWriteRegister(const  busDevice_t *dev, lsm6dxxRegister_e registerID, uint8_t value, unsigned delayMs)
+ {
+     busWrite(dev, registerID, value);
+@@ -124,14 +132,14 @@
+ 
+     // Configure control register 6
+     // disable I2C interface; set gyro LPF1 cutoff according to gyro_hardware_lpf setting
+-    lsm6dxxWriteRegisterBits(dev, LSM6DXX_REG_CTRL6_C, (lsm6dID == LSM6DSO_CHIP_ID? LSM6DXX_MASK_CTRL6_C:LSM6DSL_MASK_CTRL6_C), (LSM6DXX_VAL_CTRL6_C_XL_HM_MODE | getLsmDlpfBandwidth(gyro)), 1);
++    lsm6dxxWriteRegisterBits(dev, LSM6DXX_REG_CTRL6_C, (lsm6dxxIsDsoFamily() ? LSM6DXX_MASK_CTRL6_C : LSM6DSL_MASK_CTRL6_C), (LSM6DXX_VAL_CTRL6_C_XL_HM_MODE | getLsmDlpfBandwidth(gyro)), 1);
+ 
+     // Configure control register 7
+     lsm6dxxWriteRegisterBits(dev, LSM6DXX_REG_CTRL7_G, LSM6DXX_MASK_CTRL7_G, (LSM6DXX_VAL_CTRL7_G_HP_EN_G | LSM6DXX_VAL_CTRL7_G_HPM_G_16), 1);
+ 
+     // Configure control register 9
+     // disable I3C interface
+-    if(lsm6dID == LSM6DSO_CHIP_ID)
++    if (lsm6dxxIsDsoFamily())
+     {
+         lsm6dxxWriteRegisterBits(dev, LSM6DXX_REG_CTRL9_XL, LSM6DXX_MASK_CTRL9_XL, LSM6DXX_VAL_CTRL9_XL_I3C_DISABLE, 1);
+     }
+@@ -153,7 +161,8 @@
+ 
+         switch (tmp) {
+             case LSM6DSO_CHIP_ID:
+-            case LSM6DSL_CHIP_ID: 
++            case LSM6DSL_CHIP_ID:
++            case ISM330DHCX_CHIP_ID:
+                  lsm6dID = tmp;
+                 // Compatible chip detected
+                 return true;
