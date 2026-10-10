@@ -165,15 +165,16 @@ with otherwise identical settings.
 ### Sequence-balanced comparison
 
 Long videos can dominate frame-level training even when folds are correctly grouped by video.
-Build deterministic training lists that retain at most 350 temporally distributed original
-frames per source sequence, retain a generated negative only when its parent frame is selected,
-and leave every validation list unchanged:
+Build deterministic training lists that retain at most 350 temporally distributed positive
+frames per source sequence, retain every generated negative/hard-negative crop, and leave every
+validation list unchanged:
 
 ```bash
 python scripts/balance_training_sequences.py \
   datasets/wisard_5fold_lepton \
-  datasets/wisard_5fold_lepton_balanced \
-  --max-originals-per-sequence 350
+  datasets/wisard_5fold_lepton_balanced_all_negatives \
+  --max-originals-per-sequence 350 \
+  --negative-policy all
 ```
 
 Run fold 0 with the same hyperparameters as the unbalanced baseline so balancing is the only
@@ -181,14 +182,15 @@ experimental variable:
 
 ```bash
 python scripts/train.py \
-  --data datasets/wisard_5fold_lepton_balanced/fold_0/data.yaml \
+  --data datasets/wisard_5fold_lepton_balanced_all_negatives/fold_0/data.yaml \
   --model ../yolo26s.pt \
   --epochs 50 \
   --imgsz 640 \
-  --batch -1 \
+  --batch 0.8 \
   --device 0 \
   --freeze 0 \
-  --name lepton_fold_0_balanced_cap350
+  --scale 0.25 \
+  --name lepton_fold_0_balanced_cap350_allneg_scale025
 ```
 
 Keep the normal per-epoch losses, precision, recall, mAP50, and mAP50-95 for direct comparison.

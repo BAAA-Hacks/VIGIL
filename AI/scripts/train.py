@@ -63,6 +63,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--patience", type=int, default=20)
     parser.add_argument("--mosaic", type=float, default=0.0)
     parser.add_argument("--mixup", type=float, default=0.0)
+    parser.add_argument(
+        "--scale",
+        type=float,
+        default=0.5,
+        help="random training scale gain; reduce this for very small native images",
+    )
     parser.add_argument("--seed", type=int, default=26)
     parser.add_argument("--cache", action="store_true")
     parser.add_argument("--exist-ok", action="store_true")
@@ -77,6 +83,8 @@ def main() -> None:
         raise SystemExit("--freeze cannot be negative")
     if not 0.0 <= args.mosaic <= 1.0 or not 0.0 <= args.mixup <= 1.0:
         raise SystemExit("--mosaic and --mixup must be between 0 and 1")
+    if not 0.0 <= args.scale <= 1.0:
+        raise SystemExit("--scale must be between 0 and 1")
 
     yaml_path = find_data_yaml(args.data)
     config = load_dataset_config(yaml_path)
@@ -105,6 +113,7 @@ def main() -> None:
         "patience": args.patience,
         "mosaic": args.mosaic,
         "mixup": args.mixup,
+        "scale": args.scale,
         "seed": args.seed,
         "cache": args.cache,
         "exist_ok": args.exist_ok,

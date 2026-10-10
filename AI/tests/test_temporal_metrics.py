@@ -11,7 +11,7 @@ from AI.scripts.temporal_metrics import (
     sequence_metrics,
 )
 from AI.scripts.summarize_cv import choose_operating_points, pool_confidence_curves
-from AI.scripts.balance_training_sequences import evenly_spaced
+from AI.scripts.balance_training_sequences import choose_negatives, evenly_spaced
 
 
 GROUND_TRUTH = (0.1, 0.1, 0.3, 0.4)
@@ -143,6 +143,15 @@ class SequenceBalancingTests(unittest.TestCase):
     def test_short_sequence_is_not_oversampled(self) -> None:
         images = [Path("flight_0001.png"), Path("flight_0002.png")]
         self.assertEqual(evenly_spaced(images, 4), images)
+
+    def test_all_negative_policy_does_not_discard_unselected_parent_negatives(self) -> None:
+        negatives = {
+            ("flight", 1): [Path("flight_0001_negative.png")],
+            ("flight", 2): [Path("flight_0002_negative.png")],
+        }
+        selected_keys = {("flight", 1)}
+        self.assertEqual(len(choose_negatives(negatives, selected_keys, "linked")), 1)
+        self.assertEqual(len(choose_negatives(negatives, selected_keys, "all")), 2)
 
 
 if __name__ == "__main__":
