@@ -78,7 +78,7 @@ set setpoint_kalman_q = 200
 set gyro_zero_x = 14
 set gyro_zero_y = -25
 set gyro_zero_z = -8
-set ins_gravity_cmss =  981.225
+set ins_gravity_cmss =  980.574
 set acc_hardware = LSM6DXX
 set acczero_x = 17
 set acczero_y = -31
@@ -89,6 +89,7 @@ set accgain_z = 4095
 set align_mag = CW270FLIP
 set mag_hardware = NONE
 set baro_hardware = BMP581
+set min_check = 1050
 set blackbox_rate_denom = 2
 set motor_pwm_protocol = STANDARD
 set failsafe_procedure = DROP
@@ -192,6 +193,7 @@ set yaw_rate = 60
 # battery_profile
 battery_profile 1
 
+set throttle_scale =  0.200
 set throttle_idle =  5.000
 
 # battery_profile
