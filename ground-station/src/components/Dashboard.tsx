@@ -20,11 +20,11 @@ export default function Dashboard() {
   return (
     <div className="flex min-h-screen">
       <Sidebar />
-      <main>
+      <main className="py-0 px-[38px] max-w-[1600px] w-full m-auto max-[1100px]:py-0 max-[1100px]:px-6 max-[550px]:py-0 max-[550px]:px-4">
         <DashboardHeader demo={feed.demo} />
         <DashboardTitle onStartDemo={feed.startDemo} />
         <MetricsGrid feed={feed} />
-        <div className="content">
+        <div className=" grid [grid-template-columns:minmax(0,_1fr)_302px] gap-5 max-[1100px]:[grid-template-columns:minmax(0,_1fr)_270px] max-[850px]:grid-cols-1">
           <ThermalPanel
             feed={feed}
             palette={palette}

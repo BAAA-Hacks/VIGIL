@@ -1,70 +1,58 @@
 "use client";
 import { useState } from "react";
-import { ArrowUpRight, ArrowLeftRight } from "lucide-react";
+import { ArrowLeftRight } from "lucide-react";
 import { ThermalImage } from "../dashboard/ThermalImage";
 import { PersonMap } from "./PersonMap";
+import { ViewerPane } from "./ViewerPane";
+import { MapViewSelect, type MapView } from "./MapViewSelect";
 import type { PinData } from "../../types/mission";
+
 interface MapAreaProps {
+  drone?: import("../../types/telemetry").VehicleTelemetry | null;
+  frame?: import("../../types/vigil").ThermalFrame | null;
+  detection?: import("../../types/vigil").DetectionResult | null;
+  live?: boolean;
   pins: PinData[];
   focusedPin: PinData | null;
   focusRevision: number;
   onSelectPerson: (pin: PinData) => void;
 }
+
 export function MapArea(props: MapAreaProps) {
   const [thermalPrimary, setThermalPrimary] = useState(false);
+  const [layer, setLayer] = useState<MapView>("topographic");
   const swap = () => setThermalPrimary((value) => !value);
+
   return (
     <section
-      className={`mission-map mission-viewer ${thermalPrimary ? "thermal-primary" : ""}`}
+      className="relative isolate size-full min-h-[400px] overflow-hidden rounded-[5px] border border-[color:var(--color-ink)]/15 bg-[var(--color-paper)]"
       aria-label="Map and thermal camera"
     >
-      <div className="mission-map-heading">
-        <span>
-          {thermalPrimary ? "Thermal camera · Simulated" : "Search area"}
-        </span>
+      <div className="flex h-[42px] items-center justify-between gap-3 bg-[var(--color-ink)] px-3.5 text-xs text-[color:var(--color-paper)]">
+        <span>{thermalPrimary ? "Thermal camera" : "Search area"}</span>
+        <MapViewSelect value={layer} onChange={setLayer} />
         <button
-          className="view-swap-button"
+          type="button"
+          className="flex items-center gap-1.5 border-0 bg-transparent p-1.5 text-[10px] text-[color:var(--color-paper)]/80"
           onClick={swap}
           aria-label="Swap map and thermal camera"
         >
           <ArrowLeftRight size={13} /> Swap views
         </button>
       </div>
-      <div
-        className={`viewer-pane ${thermalPrimary ? "viewer-inset" : "viewer-main"}`}
-      >
-        <PersonMap {...props} compact={thermalPrimary} />
-        {thermalPrimary && (
-          <button
-            className="inset-promote map-promote"
-            onClick={swap}
-            aria-label="Expand map"
-          >
-            <ArrowUpRight size={13} /> Map
-          </button>
-        )}
-      </div>
-      <div
-        className={`viewer-pane thermal-pane ${thermalPrimary ? "viewer-main" : "viewer-inset"}`}
-      >
+      <ViewerPane primary={!thermalPrimary} kind="map" onPromote={swap}>
+        <PersonMap {...props} compact={thermalPrimary} layer={layer} />
+      </ViewerPane>
+      <ViewerPane primary={thermalPrimary} kind="thermal" onPromote={swap}>
         <ThermalImage
-          frame={null}
-          detection={null}
-          demo
+          frame={props.frame ?? null}
+          detection={props.detection ?? null}
+          demo={!props.live}
           palette="white"
+          presentation="viewer"
           hasPerson
         />
-        {!thermalPrimary && (
-          <button
-            className="inset-promote thermal-promote"
-            onClick={swap}
-            aria-label="Expand thermal camera"
-          >
-            <span>Thermal · Simulated</span>
-            <ArrowUpRight size={13} />
-          </button>
-        )}
-      </div>
+      </ViewerPane>
     </section>
   );
 }

@@ -1,58 +1,38 @@
+import data from "./dummy-data.json";
 import type { PinData, TelemetryData } from "../types/mission";
-export const MOCK_PINS: PinData[] = [
-  {
-    id: "1",
-    latitude: 34.0522,
-    longitude: -118.2437,
-    name: "Person 1",
-    coords: "34.0522° N, 118.2437° W",
-    temp: "98.6°F",
-    status: "normal",
-  },
-  {
-    id: "2",
-    latitude: 34.053,
-    longitude: -118.242,
-    name: "Person 2",
-    coords: "34.0530° N, 118.2420° W",
-    temp: "101.2°F",
-    status: "elevated",
-  },
-  {
-    id: "3",
-    latitude: 34.0515,
-    longitude: -118.245,
-    name: "Person 3",
-    coords: "34.0515° N, 118.2450° W",
-    temp: "94.0°F",
-    status: "low",
-  },
-  {
-    id: "4",
-    latitude: 34.0541,
-    longitude: -118.2411,
-    name: "Person 4",
-    coords: "34.0541° N, 118.2411° W",
-    temp: "98.2°F",
-    status: "normal",
-  },
-  {
-    id: "5",
-    latitude: 34.0555,
-    longitude: -118.2405,
-    name: "Person 5",
-    coords: "34.0555° N, 118.2405° W",
-    temp: "99.1°F",
-    status: "normal",
-  },
-];
 
+function formatCoordinates(latitude: number, longitude: number): string {
+  return `${Math.abs(latitude).toFixed(4)}° ${latitude >= 0 ? "N" : "S"}, ${Math.abs(longitude).toFixed(4)}° ${longitude >= 0 ? "E" : "W"}`;
+}
+function temperatureStatus(value: string): PinData["status"] {
+  if (value === "normal" || value === "elevated" || value === "low")
+    return value;
+  throw new Error(`Invalid dummy temperature status: ${value}`);
+}
+export const MOCK_PINS: PinData[] = data.people.map((person) => ({
+  id: person.id,
+  name: person.name,
+  latitude: person.coordinates.latitude,
+  longitude: person.coordinates.longitude,
+  coords: formatCoordinates(
+    person.coordinates.latitude,
+    person.coordinates.longitude,
+  ),
+  temp: `${((person.temperature_c * 9) / 5 + 32).toFixed(1)}°F`,
+  status: temperatureStatus(person.temperature_status),
+}));
+const drone = data.drone;
+const flightMinutes = Math.floor(drone.flight_time_seconds / 60);
+const flightSeconds = drone.flight_time_seconds % 60;
 export const MOCK_TELEMETRY: TelemetryData = {
-  speed: "15.4 m/s",
-  coords: "34.0525° N, 118.2430° W",
-  alt: "120.5 m",
-  time: "24:15",
-  temp: "42.3 °C",
-  course: "045° NE",
-  dist: "1.24 km",
+  speed: `${drone.ground_speed_mps.toFixed(1)} m/s`,
+  alt: `${drone.altitude_m.toFixed(1)} m`,
+  course: `${drone.course_deg.toString().padStart(3, "0")}°`,
+  dist: `${(drone.distance_from_home_m / 1000).toFixed(2)} km`,
+  time: `${flightMinutes}:${flightSeconds.toString().padStart(2, "0")}`,
+  coords: formatCoordinates(
+    drone.coordinates.latitude,
+    drone.coordinates.longitude,
+  ),
+  temp: `${drone.pcb_temperature_c.toFixed(1)} °C`,
 };

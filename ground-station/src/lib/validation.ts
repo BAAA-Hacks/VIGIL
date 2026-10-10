@@ -27,6 +27,19 @@ function isDetection(value: unknown): value is Detection {
     value.confidence > 1
   )
     return false;
+  if (
+    (value.track_id !== undefined &&
+      (typeof value.track_id !== "string" ||
+        !value.track_id.length ||
+        value.track_id.length > 64)) ||
+    (value.feet_visible !== undefined &&
+      typeof value.feet_visible !== "boolean") ||
+    (value.temperature_c !== undefined &&
+      !isFiniteNumber(value.temperature_c)) ||
+    (value.temperature_status !== undefined &&
+      !["normal", "low", "elevated"].includes(String(value.temperature_status)))
+  )
+    return false;
   const box = value.bbox_xyxy_norm;
   return (
     Array.isArray(box) &&

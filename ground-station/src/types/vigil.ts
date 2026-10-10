@@ -11,6 +11,10 @@ export interface ThermalFrame {
   payload?: string;
 }
 export interface Detection {
+  track_id?: string;
+  feet_visible?: boolean;
+  temperature_c?: number;
+  temperature_status?: "normal" | "elevated" | "low";
   class: string;
   confidence: number;
   bbox_xyxy_norm: BoundingBox;

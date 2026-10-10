@@ -1,13 +1,25 @@
 "use client";
 import { useState } from "react";
 import type { PinData } from "../../types/mission";
+import { TestDataToggle } from "./TestDataToggle";
 import { MissionHeader } from "./MissionHeader";
 import { MapArea } from "./MapArea";
 import { DroneInfoPanel } from "./DroneInfoPanel";
 import { PinsPanel } from "./PinsPanel";
-import { MOCK_PINS, MOCK_TELEMETRY } from "../../data/missionDemo";
+import { useVehicleTelemetry } from "../../hooks/useVehicleTelemetry";
+import { usePinTest } from "../../hooks/usePinTest";
+import { usePersonLocations } from "../../hooks/usePersonLocations";
+import { LocationSettings } from "./LocationSettings";
+import { MOCK_PINS } from "../../data/missionDemo";
 
 export function MissionDashboard() {
+  const vehicle = useVehicleTelemetry();
+  const pinTest = usePinTest();
+  const locations = usePersonLocations(
+    pinTest.enabled ? null : vehicle.data,
+    pinTest.config,
+  );
+  const pins = locations.active ? locations.pins : MOCK_PINS;
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [focusedPin, setFocusedPin] = useState<PinData | null>(null);
   const [focusRevision, setFocusRevision] = useState(0);
@@ -22,28 +34,60 @@ export function MissionDashboard() {
     setFocusRevision((current) => current + 1);
   }
   return (
-    <div className="mission-station min-h-screen flex flex-col">
+    <div className="bg-[var(--color-paper)] text-[color:var(--color-ink)] [font-family:Arial,Helvetica,sans-serif] min-h-screen flex flex-col">
       <MissionHeader />
       <div className="grid grid-cols-1 gap-4 p-4 lg:p-5 lg:grid-cols-12 lg:grid-rows-[minmax(400px,1fr)_auto] lg:min-h-[700px] lg:h-[calc(100vh-72px)]">
         <div className="min-h-[400px] lg:col-span-8 lg:min-h-0">
           <MapArea
-            pins={MOCK_PINS}
-            focusedPin={focusedPin}
+            pins={pins}
+            drone={locations.drone}
+            frame={locations.frame}
+            detection={locations.detection}
+            live={locations.active}
+            focusedPin={
+              (focusedPin && pins.find((p) => p.id === focusedPin.id)) || null
+            }
             focusRevision={focusRevision}
             onSelectPerson={selectMapPerson}
           />
         </div>
         <div className="lg:col-span-4 lg:min-h-0 overflow-hidden">
           <PinsPanel
-            pins={MOCK_PINS}
+            settings={
+              <LocationSettings
+                telemetry={locations.telemetry ?? vehicle.data}
+              />
+            }
+            message={pinTest.error || locations.message}
+            reasons={locations.reasons}
+            pins={pins}
             expandedId={expandedId}
             onSelect={selectPerson}
           />
         </div>
         <div className="lg:col-span-12">
-          <DroneInfoPanel telemetry={MOCK_TELEMETRY} />
+          <DroneInfoPanel
+            telemetry={locations.telemetry ?? vehicle.data}
+            state={pinTest.enabled ? "Connected · pin test" : vehicle.state}
+            stale={pinTest.enabled ? false : vehicle.stale}
+            flightTime={
+              pinTest.enabled ? pinTest.flightTime : vehicle.flightTime
+            }
+          />
         </div>
       </div>
+      <TestDataToggle
+        enabled={vehicle.enabled}
+        onToggle={() => {
+          pinTest.stop();
+          vehicle.toggleTestData();
+        }}
+        pinTestEnabled={pinTest.enabled}
+        onTogglePinTest={() => {
+          if (vehicle.enabled) vehicle.toggleTestData();
+          pinTest.toggle();
+        }}
+      />
     </div>
   );
 }

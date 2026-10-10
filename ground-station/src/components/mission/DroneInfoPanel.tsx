@@ -1,26 +1,39 @@
-import type { TelemetryData } from "../../types/mission";
+import type { VehicleTelemetry } from "../../types/telemetry";
+import { getDroneReadings } from "../../lib/droneReadings";
+import { MissionPanel } from "./MissionPanel";
 import { StatBox } from "./StatBox";
-export function DroneInfoPanel({ telemetry }: { telemetry: TelemetryData }) {
+
+interface DroneInfoProps {
+  telemetry: VehicleTelemetry | null;
+  state: string;
+  stale: boolean;
+  flightTime: string;
+}
+
+export function DroneInfoPanel({
+  telemetry,
+  state,
+  stale,
+  flightTime,
+}: DroneInfoProps) {
+  const data = stale || state !== "Connected" ? null : telemetry;
+  const readings = getDroneReadings(data, flightTime);
+
   return (
-    <div className="mission-panel h-full flex flex-col">
-      <div className="mission-panel-heading">
-        <h2 className="mission-panel-title">Drone Info</h2>
+    <MissionPanel
+      title="Drone Info"
+      meta={
+        <>
+          {telemetry?.source ?? "Bridge"} · {state} ·{" "}
+          {telemetry?.link_state ?? "No data"}
+        </>
+      }
+    >
+      <div className="grid grid-cols-2 gap-x-5 gap-y-4 p-5 md:grid-cols-4 xl:grid-cols-7">
+        {readings.map((reading) => (
+          <StatBox key={reading.label} {...reading} />
+        ))}
       </div>
-
-      <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-x-5 gap-y-4 p-5 flex-grow">
-        <StatBox label="Ground Speed" value={telemetry.speed} />
-        <StatBox label="Altitude" value={telemetry.alt} />
-        <StatBox label="Course" value={telemetry.course} />
-        <StatBox label="Distance from home" value={telemetry.dist} />
-
-        <StatBox label="Flight Time" value={telemetry.time} />
-        <StatBox label="Coordinates" value={telemetry.coords} />
-        <StatBox
-          label="Board temperature"
-          value={telemetry.temp}
-          highlight={true}
-        />
-      </div>
-    </div>
+    </MissionPanel>
   );
 }
