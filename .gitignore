@@ -436,3 +436,4 @@ reports/
 dataset_inspection/
 evaluation.json
 runs/
+*.pt

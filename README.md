@@ -162,6 +162,39 @@ Test the two-stage recipe on one fold before multiplying it across all five. For
 original-resolution baseline, use the corresponding `datasets/wisard_5fold/fold_N/data.yaml`
 with otherwise identical settings.
 
+### Sequence-balanced comparison
+
+Long videos can dominate frame-level training even when folds are correctly grouped by video.
+Build deterministic training lists that retain at most 350 temporally distributed original
+frames per source sequence, retain a generated negative only when its parent frame is selected,
+and leave every validation list unchanged:
+
+```bash
+python scripts/balance_training_sequences.py \
+  datasets/wisard_5fold_lepton \
+  datasets/wisard_5fold_lepton_balanced \
+  --max-originals-per-sequence 350
+```
+
+Run fold 0 with the same hyperparameters as the unbalanced baseline so balancing is the only
+experimental variable:
+
+```bash
+python scripts/train.py \
+  --data datasets/wisard_5fold_lepton_balanced/fold_0/data.yaml \
+  --model ../yolo26s.pt \
+  --epochs 50 \
+  --imgsz 640 \
+  --batch -1 \
+  --device 0 \
+  --freeze 0 \
+  --name lepton_fold_0_balanced_cap350
+```
+
+Keep the normal per-epoch losses, precision, recall, mAP50, and mAP50-95 for direct comparison.
+Run the per-video and temporal evaluator on `best.pt` and `last.pt` after training rather than
+adding the expensive prediction pass to every epoch.
+
 ## 5. Evaluate held-out folds
 
 Each fold's `val` split is sequence-disjoint from that fold's training data:
@@ -172,14 +205,33 @@ for fold in 0 1 2 3 4; do
     --weights models/runs/lepton_fold_${fold}/weights/best.pt \
     --data datasets/wisard_5fold_lepton/fold_${fold}/data.yaml \
     --split val \
+    --presence-conf 0.25 \
+    --match-iou 0.25 \
+    --match-mode iou_or_center \
+    --temporal-window 3 \
+    --temporal-min-hits 2 \
     --output reports/lepton_fold_${fold}_val.json
 done
 ```
 
-The report includes person precision, recall, mAP50, mAP50-95, Ultralytics timing, and
-false-positive detections/frame rate on empty images at the configured confidence threshold.
+Each report includes:
+
+- standard person precision, recall, mAP50, and mAP50-95;
+- frame-presence precision, recall, F1, specificity, and a confidence-threshold curve;
+- relaxed one-to-one person matching using IoU >= 0.25 or a predicted center inside the label;
+- per-video frame metrics so long videos cannot hide failures on short videos;
+- event recall, temporal coverage, longest miss streak, and time to first detection;
+- raw and 2-of-3 temporally smoothed alert behavior; and
+- false-positive frame and detection rates on empty images.
+
+Synthetic negative crops count toward frame-level false positives but are excluded from temporal
+ordering because they are crops, not subsequent camera frames. Temporal durations are reported in
+observed frames rather than seconds unless source FPS metadata becomes available.
+
 Report the mean and standard deviation across all five folds. Original-resolution and
-simulated-resolution numbers remain separate experimental conditions.
+simulated-resolution numbers remain separate experimental conditions. The cross-validation
+summary pools confusion counts at every evaluated confidence threshold to select one global
+out-of-fold operating threshold.
 
 After all five reports exist:
 

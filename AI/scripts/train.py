@@ -24,13 +24,35 @@ except ModuleNotFoundError:
     from AI.scripts.model_utils import load_model, parse_device  # type: ignore
 
 
+def parse_batch(value: str) -> int | float:
+    """Parse a fixed batch size or an AutoBatch GPU-memory fraction."""
+    try:
+        number = float(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("batch must be -1, a positive integer, or a fraction") from exc
+    if number == -1:
+        return -1
+    if 0 < number < 1:
+        return number
+    if number >= 1 and number.is_integer():
+        return int(number)
+    raise argparse.ArgumentTypeError(
+        "batch must be -1, a positive integer, or a GPU-memory fraction between 0 and 1"
+    )
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", required=True, type=Path, help="Dataset root or data.yaml")
     parser.add_argument("--model", default="yolo26s.pt")
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--imgsz", type=int, default=640)
-    parser.add_argument("--batch", type=int, default=-1, help="-1 selects an automatic batch size")
+    parser.add_argument(
+        "--batch",
+        type=parse_batch,
+        default=-1,
+        help="fixed batch size, -1 for automatic 60%% VRAM, or a fraction such as 0.85",
+    )
     parser.add_argument("--device", default="0")
     parser.add_argument("--workers", type=int, default=8)
     parser.add_argument("--project", type=Path, default=Path("models/runs"))
