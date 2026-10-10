@@ -78,6 +78,14 @@ def parse_args() -> argparse.Namespace:
         default=0.5,
         help="random training scale gain; reduce this for very small native images",
     )
+    parser.add_argument(
+        "--hsv-h",
+        type=float,
+        default=None,
+        help="hue jitter; set 0 for temporal stacks, where channels are frames, not colours",
+    )
+    parser.add_argument("--hsv-s", type=float, default=None, help="saturation jitter; set 0 for temporal stacks")
+    parser.add_argument("--hsv-v", type=float, default=None, help="brightness jitter")
     parser.add_argument("--seed", type=int, default=26)
     parser.add_argument(
         "--epoch-fraction",
@@ -171,6 +179,12 @@ def main() -> None:
         if args.optimizer.lower() == "auto":
             raise SystemExit("Ultralytics ignores --lr0 with optimizer=auto; select an optimizer")
         settings["lr0"] = args.lr0
+    for key in ("hsv_h", "hsv_s", "hsv_v"):
+        value = getattr(args, key)
+        if value is not None:
+            if not 0.0 <= value <= 1.0:
+                raise SystemExit(f"--{key.replace('_', '-')} must be between 0 and 1")
+            settings[key] = value
 
     sampled_count = max(1, round(train_count * args.epoch_fraction))
     print(

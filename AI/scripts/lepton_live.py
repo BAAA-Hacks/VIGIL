@@ -9,6 +9,7 @@ import json
 import struct
 import sys
 import time
+from collections import deque
 from dataclasses import dataclass
 from pathlib import Path
 from typing import BinaryIO, Iterable, Protocol
@@ -20,8 +21,10 @@ import numpy as np
 
 try:
     from AI.scripts.model_utils import load_model, parse_device
+    from AI.scripts.temporal_utils import ALIGN_MODES, stack_frames
 except ModuleNotFoundError:
     from AI.scripts.model_utils import load_model, parse_device  # type: ignore
+    from AI.scripts.temporal_utils import ALIGN_MODES, stack_frames  # type: ignore
 
 
 HEADER = struct.Struct("<4sIIHHHHI")
@@ -29,6 +32,7 @@ MAGIC = b"LEP1"
 EXPECTED_WIDTH = 160
 EXPECTED_HEIGHT = 120
 TLINEAR_FLAG = 1
+MAX_TEMPORAL_GAP = 4
 
 
 @dataclass(frozen=True)
@@ -118,6 +122,29 @@ def feet_visible(bbox: list[float], edge_margin: float) -> bool:
     """Conservative box-based heuristic; this is not pose estimation."""
     bottom = bbox[3]
     return bottom < 1.0 - edge_margin
+
+
+class TemporalBuffer:
+    """Builds [t-2k, t-k, t] model inputs; replicates the current frame until history fills."""
+
+    def __init__(self, step: int, align: str) -> None:
+        self.step = step
+        self.align = align
+        self.frames: deque[np.ndarray] = deque(maxlen=2 * step + 1)
+
+    def reset(self) -> None:
+        self.frames.clear()
+
+    def model_input(self, image: np.ndarray) -> np.ndarray:
+        self.frames.append(image)
+        if self.step == 0:
+            return cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+        history = list(self.frames)
+
+        def back(offset: int) -> np.ndarray:
+            return history[-1 - offset] if len(history) > offset else image
+
+        return stack_frames([back(2 * self.step), back(self.step), image], self.align)
 
 
 class JsonLineSink:
@@ -217,6 +244,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--feet-edge-margin", type=float, default=0.01)
     parser.add_argument("--connect-timeout", type=float, default=5.0)
     parser.add_argument("--reconnect-delay", type=float, default=1.0)
+    parser.add_argument(
+        "--temporal-step",
+        type=int,
+        default=0,
+        help="k for temporal models ([t-2k, t-k, t] as channels); 0 for single-frame models",
+    )
+    parser.add_argument("--temporal-align", choices=ALIGN_MODES, default="none")
     parser.add_argument("--max-frames", type=int, help="Stop after N frames; useful for testing")
     return parser.parse_args()
 
@@ -227,6 +261,8 @@ def main() -> None:
         raise SystemExit("--imgsz and --max-frames must be positive")
     if not 0 <= args.conf <= 1 or not 0 <= args.iou <= 1:
         raise SystemExit("--conf and --iou must be between zero and one")
+    if args.temporal_step < 0:
+        raise SystemExit("--temporal-step cannot be negative")
     if not 0 <= args.feet_edge_margin < 0.5:
         raise SystemExit("--feet-edge-margin must be in [0, 0.5)")
 
@@ -239,17 +275,26 @@ def main() -> None:
     boot_session = 0
     process_session = time.time_ns() // 1_000_000
     last_camera_frame: int | None = None
+    temporal = TemporalBuffer(args.temporal_step, args.temporal_align)
     try:
         while args.max_frames is None or published < args.max_frames:
             try:
                 for frame in lepton_frames(args.camera_url, args.connect_timeout):
                     if last_camera_frame is not None and frame.camera_frame_id <= last_camera_frame:
                         boot_session += 1
+                        temporal.reset()
+                    elif (
+                        last_camera_frame is not None
+                        and frame.camera_frame_id - last_camera_frame > MAX_TEMPORAL_GAP
+                    ):
+                        # /raw sends the newest frame, so small skips are normal; a long gap
+                        # means the history no longer shows recent motion.
+                        temporal.reset()
                     last_camera_frame = frame.camera_frame_id
                     capture_timestamp_ms = time.time_ns() // 1_000_000
                     frame_id = f"lepton-{process_session}-{boot_session}-{frame.camera_frame_id}"
                     image = normalize_frame(frame)
-                    model_input = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+                    model_input = temporal.model_input(image)
 
                     started = time.perf_counter()
                     results = model.track(
@@ -289,6 +334,7 @@ def main() -> None:
                         break
             except (ConnectionError, EOFError, OSError, RuntimeError, ValueError) as exc:
                 print(f"Lepton stream error: {exc}; reconnecting", file=sys.stderr, flush=True)
+                temporal.reset()
                 time.sleep(args.reconnect_delay)
     except KeyboardInterrupt:
         pass
