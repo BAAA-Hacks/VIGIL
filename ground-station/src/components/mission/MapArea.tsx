@@ -16,6 +16,7 @@ interface MapAreaProps {
   focusedPin: PinData | null;
   focusRevision: number;
   onSelectPerson: (pin: PinData) => void;
+  onAddPerson: (latitude: number, longitude: number) => void;
 }
 
 export function MapArea(props: MapAreaProps) {
@@ -26,13 +27,14 @@ export function MapArea(props: MapAreaProps) {
 
   return (
     <section
-      className="relative isolate size-full min-h-[400px] overflow-hidden rounded-[5px] border border-[color:var(--color-ink)]/15 bg-[var(--color-paper)]"
+      className="relative isolate size-full min-h-[400px] overflow-hidden rounded-[12px] border border-[color:var(--color-ink)]/15 bg-[var(--color-paper)]"
       aria-label="Map and thermal camera"
     >
-      <div className="flex h-[42px] items-center justify-between gap-3 bg-[var(--color-ink)] px-3.5 text-xs text-[color:var(--color-paper)]">
-        <span className="shrink-0 max-[600px]:sr-only">
+      <div className="flex h-[42px] items-center justify-between gap-2 bg-[var(--color-ink)] px-2 text-xs text-[color:var(--color-paper)]">
+        <span className="shrink-0 pr-2 font-medium max-[1100px]:sr-only">
           {thermalPrimary ? "Thermal camera" : "Search area"}
         </span>
+        <div data-map-tools className="flex min-w-0 items-center" />
         <MapViewSelect value={layer} onChange={setLayer} />
         <button
           type="button"
@@ -41,7 +43,7 @@ export function MapArea(props: MapAreaProps) {
           aria-label="Swap views between map and thermal camera"
         >
           <ArrowLeftRight size={13} aria-hidden="true" />{" "}
-          <span className="max-[600px]:sr-only">Swap views</span>
+          <span className="sr-only">Swap views</span>
         </button>
       </div>
       <ViewerPane

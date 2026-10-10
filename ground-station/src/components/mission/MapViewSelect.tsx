@@ -16,7 +16,7 @@ export function MapViewSelect({ value, onChange }: MapViewSelectProps) {
     <div
       role="group"
       aria-label="Map view"
-      className="ml-auto flex shrink-0 items-center rounded-[4px] border border-[color:var(--color-paper)]/25 p-0.5"
+      className="ml-auto flex shrink-0 items-center gap-0.5 rounded-[7px] border border-[color:var(--color-paper)]/20 p-0.5"
     >
       {MAP_VIEWS.map((view) => (
         <button
@@ -24,11 +24,7 @@ export function MapViewSelect({ value, onChange }: MapViewSelectProps) {
           type="button"
           aria-pressed={value === view.value}
           onClick={() => onChange(view.value)}
-          className={`min-h-7 rounded-[2px] px-2 text-[11px] focus-visible:outline-[color:var(--color-paper)] focus-visible:outline-offset-1 ${
-            value === view.value
-              ? "bg-[var(--color-paper)] font-medium text-[color:var(--color-ink)]"
-              : "bg-transparent text-[color:var(--color-paper)]/80 hover:bg-[var(--color-paper)]/10 hover:text-[color:var(--color-paper)]"
-          }`}
+          className={`h-7 rounded-[5px] px-1.5 text-[10px] focus-visible:outline-[color:var(--color-paper)] focus-visible:outline-offset-1 ${value === view.value ? "bg-[var(--color-paper)] font-medium text-[color:var(--color-ink)]" : "text-[color:var(--color-paper)]/80 hover:bg-[var(--color-paper)]/10"}`}
         >
           {view.label}
         </button>
@@ -36,3 +32,6 @@ export function MapViewSelect({ value, onChange }: MapViewSelectProps) {
     </div>
   );
 }
+
+
+

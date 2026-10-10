@@ -5,21 +5,24 @@ export function MissionPathPanel({ planner }: { planner: Planner }) {
   const { selected, shapes, sending } = planner;
   if (!shapes.length) return null;
   const input =
-    "mt-1.5 min-h-9 min-w-0 w-full rounded-[4px] border border-[color:var(--color-ink)]/20 bg-[var(--color-paper)] px-2.5 py-2 text-xs font-normal tabular-nums outline-none transition-colors focus:border-[color:var(--color-ink)] focus:ring-2 focus:ring-[var(--color-blue)]/40";
+    "mt-1.5 min-h-8 min-w-0 w-full rounded-[4px] border border-[color:var(--color-ink)]/20 bg-[var(--color-paper)] px-2 py-1.5 text-xs font-normal tabular-nums outline-none transition-colors focus:border-[color:var(--color-ink)] focus:ring-2 focus:ring-[var(--color-blue)]/40";
   return (
-    <details
-      open
-      className="absolute bottom-7 left-3 z-[1100] max-h-[calc(100%-100px)] w-[320px] max-w-[calc(100%-80px)] overflow-y-auto rounded-[4px] border border-[color:var(--color-ink)]/25 bg-[var(--color-paper)] text-xs text-[color:var(--color-ink)] shadow-[0_4px_16px_color-mix(in_srgb,_var(--color-ink)_18%,_transparent)]"
-    >
-      <summary className="cursor-pointer bg-[var(--color-ink)] px-4 py-3 font-medium text-[color:var(--color-paper)] marker:text-[color:var(--color-blue)]">
-        Auton pathing <span className="ml-2 rounded-[3px] bg-[var(--color-paper)]/15 px-2 py-1 text-[10px] font-normal tabular-nums">{planner.count} points</span>
+    <details className="group absolute top-2 left-2 z-[1100] max-h-[calc(100%-48px)] w-fit max-w-[calc(100%-16px)] overflow-y-auto rounded-[4px] open:static open:order-first open:h-full open:max-h-none open:w-full open:max-w-none open:rounded-none open:shadow-none border border-[color:var(--color-ink)]/25 bg-[var(--color-paper)] text-xs text-[color:var(--color-ink)] shadow-[0_4px_16px_color-mix(in_srgb,_var(--color-ink)_18%,_transparent)]">
+      <summary className="cursor-pointer bg-[var(--color-ink)] px-3 py-2.5 font-medium text-[color:var(--color-paper)] marker:text-[color:var(--color-blue)]">
+        Auton pathing{" "}
+        <span className="ml-2 rounded-[3px] bg-[var(--color-paper)]/15 px-2 py-1 text-[10px] font-normal tabular-nums">
+          {planner.count} points
+        </span>
       </summary>
       {!planner.configured && (
-        <p className="mx-4 mt-3 rounded-[4px] border border-[color:var(--color-ink)]/10 bg-[var(--color-yellow)]/25 px-3 py-2 leading-relaxed">
+        <p className="mx-3 mt-2 rounded-[4px] border border-[color:var(--color-ink)]/10 bg-[var(--color-yellow)]/25 px-3 py-2 leading-relaxed">
           INAV upload connection is not configured. Use XML export for now.
         </p>
       )}
-      <fieldset disabled={sending} className="space-y-4 p-4 disabled:opacity-60">
+      <fieldset
+        disabled={sending}
+        className="space-y-3 p-3 disabled:opacity-60"
+      >
         <div
           className="flex flex-wrap gap-1.5"
           role="group"
@@ -57,13 +60,13 @@ export function MissionPathPanel({ planner }: { planner: Planner }) {
             <button
               type="button"
               onClick={planner.remove}
-              className="min-h-9 rounded-[4px] border border-[color:var(--color-ink)]/20 px-3 py-2 transition-colors hover:border-[color:var(--color-pink)]/40 hover:bg-[var(--color-pink)]/5"
+              className="min-h-8 rounded-[4px] border border-[color:var(--color-ink)]/20 px-3 py-2 transition-colors hover:border-[color:var(--color-pink)]/40 hover:bg-[var(--color-pink)]/5"
             >
               Remove
             </button>
           </div>
         )}
-        <div className="grid grid-cols-2 gap-3 border-t border-[color:var(--color-ink)]/15 pt-4">
+        <div className="grid grid-cols-2 gap-2 border-t border-[color:var(--color-ink)]/15 pt-3">
           <label className="font-medium">
             Altitude (m)
             <input
@@ -136,15 +139,14 @@ export function MissionPathPanel({ planner }: { planner: Planner }) {
       </fieldset>
       <p
         role="status"
-        className="px-4 pb-3 text-[11px] leading-relaxed text-[color:var(--color-ink)]/80"
+        className="px-3 pb-2 text-[11px] leading-relaxed text-[color:var(--color-ink)]/80"
       >
         {planner.message}
       </p>
-      <p className="border-t border-[color:var(--color-ink)]/15 bg-[var(--color-ink)]/5 px-4 py-3 text-[11px] leading-relaxed text-[color:var(--color-ink)]/75">
+      <p className="border-t border-[color:var(--color-ink)]/15 bg-[var(--color-ink)]/5 px-3 py-2 text-[11px] leading-relaxed text-[color:var(--color-ink)]/75">
         Pilot control: use your transmitter’s mode switch at any time. Upload
         does not arm or start flight.
       </p>
     </details>
   );
 }
-

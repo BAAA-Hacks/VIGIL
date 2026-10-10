@@ -1,4 +1,6 @@
 export interface PinData {
+  manual?: boolean;
+  elevationState?: "loading" | "unavailable";
   displayLabel?: string;
   locationNote?: string;
   capturedAt?: number;

@@ -16,6 +16,7 @@ interface PersonMapProps {
   focusedPin: PinData | null;
   focusRevision: number;
   onSelectPerson: (pin: PinData) => void;
+  onAddPerson: (latitude: number, longitude: number) => void;
   compact: boolean;
   layer: MapView;
 }
@@ -65,7 +66,10 @@ export function PersonMap(props: PersonMapProps) {
     let disposed = false;
     const host = container.current;
     if (!host) return;
-    setToolbarHost(host.closest("section"));
+    setToolbarHost(
+      host.closest("section")?.querySelector<HTMLElement>("[data-map-tools]") ??
+        null,
+    );
     import("leaflet")
       .then((L) => {
         if (disposed) return;
@@ -108,32 +112,51 @@ export function PersonMap(props: PersonMapProps) {
       onDragOver={(event) => {
         if (
           !props.compact &&
-          event.dataTransfer.types.includes("application/x-vigil-shape")
+          (event.dataTransfer.types.includes("application/x-vigil-shape") ||
+            event.dataTransfer.types.includes("application/x-vigil-person"))
         ) {
           event.preventDefault();
           event.dataTransfer.dropEffect = "copy";
         }
       }}
       onDrop={(event) => {
-        if (props.compact || planner.sending) return;
+        if (props.compact || !container.current?.contains(event.target as Node))
+          return;
+        if (event.dataTransfer.types.includes("application/x-vigil-person")) {
+          event.preventDefault();
+          const point = controller.current?.placement(
+            event.clientX,
+            event.clientY,
+          );
+          if (point) props.onAddPerson(point.latitude, point.longitude);
+          return;
+        }
+        if (planner.sending) return;
         const kind = event.dataTransfer.getData("application/x-vigil-shape");
         if (Object.hasOwn(SHAPE_POINTS, kind)) {
           event.preventDefault();
           addShape(kind as PathShapeKind, event.clientX, event.clientY);
         }
       }}
-      className="relative size-full [&_.leaflet-control-attribution]:max-w-[calc(100%-16px)] [&_.leaflet-control-attribution]:whitespace-nowrap [&_.leaflet-control-attribution]:overflow-x-auto [&_.leaflet-control-attribution]:[scrollbar-width:none] [&_.leaflet-control-attribution::-webkit-scrollbar]:hidden [&_.leaflet-control-attribution]:text-[9px] [&_.leaflet-control-attribution_a]:text-[color:var(--color-ink)]"
+      className="relative size-full has-[details[open]]:grid has-[details[open]]:grid-cols-[288px_minmax(0,1fr)] max-[600px]:has-[details[open]]:grid-cols-1 max-[600px]:has-[details[open]]:grid-rows-[minmax(0,1fr)_minmax(180px,1fr)] [&_.leaflet-control-attribution]:max-w-[calc(100%-16px)] [&_.leaflet-control-attribution]:whitespace-nowrap [&_.leaflet-control-attribution]:overflow-x-auto [&_.leaflet-control-attribution]:[scrollbar-width:none] [&_.leaflet-control-attribution::-webkit-scrollbar]:hidden [&_.leaflet-control-attribution]:text-[9px] [&_.leaflet-control-attribution_a]:text-[color:var(--color-ink)]"
     >
       <div
         ref={container}
-        className="size-full bg-[var(--color-paper)]"
+        className="size-full min-h-0 min-w-0 bg-[var(--color-paper)]"
         aria-label="Map of detected person coordinates"
       />
       {!props.compact && !error && (
         <>
           {toolbarHost &&
             createPortal(
-              <ShapeToolbar disabled={planner.sending} onAdd={addShape} />,
+              <ShapeToolbar
+                disabled={planner.sending}
+                onAdd={addShape}
+                onAddPerson={() => {
+                  const point = controller.current?.placement();
+                  if (point) props.onAddPerson(point.latitude, point.longitude);
+                }}
+              />,
               toolbarHost,
             )}
           <MissionPathPanel planner={planner} />

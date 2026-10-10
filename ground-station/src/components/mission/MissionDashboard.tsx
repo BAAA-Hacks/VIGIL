@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import type { PinData } from "../../types/mission";
 import { TestDataToggle } from "./TestDataToggle";
 import { MissionHeader } from "./MissionHeader";
@@ -21,7 +21,67 @@ export function MissionDashboard() {
     pinTest.config,
   );
   const thermal = useThermalFeed(!pinTest.enabled);
-  const pins = locations.active ? locations.pins : MOCK_PINS;
+  const [manualPins, setManualPins] = useState<PinData[]>([]);
+  const [deletedIds, setDeletedIds] = useState<Set<string>>(() => new Set());
+  const manualNumber = useRef(0);
+  const pins = [
+    ...(locations.active ? locations.pins : MOCK_PINS),
+    ...manualPins,
+  ].filter((pin) => !deletedIds.has(pin.id));
+  function deletePerson(pin: PinData) {
+    setDeletedIds((ids) => new Set([...ids, pin.id]));
+    setManualPins((items) => items.filter((item) => item.id !== pin.id));
+    setExpandedId((id) => (id === pin.id ? null : id));
+    setFocusedPin((item) => (item?.id === pin.id ? null : item));
+  }
+  async function addPerson(latitude: number, longitude: number) {
+    const number = ++manualNumber.current;
+    const pin: PinData = {
+      id: `manual-${crypto.randomUUID()}`,
+      displayLabel: `M${number}`,
+      name: `Manual person ${number}`,
+      manual: true,
+      elevationState: "loading",
+      latitude,
+      longitude,
+      coords: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+      temp: "",
+      status: "unknown",
+    };
+    setManualPins((items) => [...items, pin]);
+    setExpandedId(pin.id);
+    try {
+      const response = await fetch(
+        `/api/elevation?lat=${latitude}&lon=${longitude}`,
+      );
+      const result = await response.json();
+      if (
+        !response.ok ||
+        typeof result.elevation_m !== "number" ||
+        !Number.isFinite(result.elevation_m)
+      )
+        throw new Error("Elevation unavailable");
+      setManualPins((items) =>
+        items.map((item) =>
+          item.id === pin.id
+            ? {
+                ...item,
+                groundElevationM: result.elevation_m,
+                elevationState: undefined,
+              }
+            : item,
+        ),
+      );
+    } catch {
+      setManualPins((items) =>
+        items.map((item) =>
+          item.id === pin.id
+            ? { ...item, elevationState: "unavailable" }
+            : item,
+        ),
+      );
+    }
+  }
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [focusedPin, setFocusedPin] = useState<PinData | null>(null);
   const [focusRevision, setFocusRevision] = useState(0);
@@ -42,9 +102,9 @@ export function MissionDashboard() {
       <main
         id="mission-content"
         tabIndex={-1}
-        className="grid grid-cols-1 gap-4 p-4 lg:p-5 lg:grid-cols-12 lg:grid-rows-[minmax(400px,1fr)_auto] lg:min-h-[700px] lg:h-[calc(100vh-72px)]"
+        className="grid grid-cols-1 gap-2 p-2 min-[900px]:grid-cols-12 min-[900px]:grid-rows-[minmax(400px,1fr)_auto] min-[900px]:min-h-[700px] min-[900px]:h-[calc(100vh-72px)]"
       >
-        <div className="min-h-[400px] lg:col-span-8 lg:min-h-0">
+        <div className="min-h-[400px] min-[900px]:col-span-9 min-[900px]:min-h-0">
           <MapArea
             pins={pins}
             drone={locations.drone}
@@ -56,9 +116,10 @@ export function MissionDashboard() {
             }
             focusRevision={focusRevision}
             onSelectPerson={selectMapPerson}
+            onAddPerson={addPerson}
           />
         </div>
-        <div className="lg:col-span-4 lg:min-h-0 overflow-hidden">
+        <div className="min-[900px]:col-span-3 min-[900px]:min-h-0 overflow-hidden">
           <PinsPanel
             settings={
               <LocationSettings
@@ -70,9 +131,10 @@ export function MissionDashboard() {
             pins={pins}
             expandedId={expandedId}
             onSelect={selectPerson}
+            onDelete={deletePerson}
           />
         </div>
-        <div className="lg:col-span-12">
+        <div className="min-[900px]:col-span-12">
           <DroneInfoPanel
             telemetry={locations.telemetry ?? vehicle.data}
             state={pinTest.enabled ? "Connected" : vehicle.state}

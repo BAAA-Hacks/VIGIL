@@ -64,9 +64,11 @@ export class PersonMapController {
     this.map = L.map(host, {
       scrollWheelZoom: false,
       touchZoom: true,
+      zoomControl: false,
       zoomSnap: 0,
       zoomDelta: 0.5,
     }).setView([34.053, -118.243], 16);
+    L.control.zoom({ position: "bottomleft" }).addTo(this.map);
     this.stopZoom = enableSmoothMapZoom(this.map);
     // Set the initial bounds before requesting tiles, and request only the chosen layer.
     this.update(pins, drone);
@@ -120,16 +122,19 @@ export class PersonMapController {
         entry.marker.setLatLng([pin.latitude, pin.longitude]);
       entry.label.textContent = pin.displayLabel ?? pin.id;
       entry.label.className = `grid size-7 place-items-center rounded-full border-2 text-xs font-bold shadow-[0_1px_3px_color-mix(in_srgb,_var(--color-ink)_40%,_transparent)] [font-family:Arial,sans-serif] ${TEMPERATURE_STATUS[pin.status].markerClass}`;
-      const title = `${pin.name}: ${pin.coords} · ${TEMPERATURE_STATUS[pin.status].label}`;
+      const detail = pin.manual
+        ? pin.groundElevationM !== undefined
+          ? `${pin.groundElevationM.toFixed(1)} m ground elevation`
+          : pin.elevationState === "loading"
+            ? "Ground elevation looking up…"
+            : "Ground elevation unavailable"
+        : `${pin.temp} · ${TEMPERATURE_STATUS[pin.status].label}`;
+      const title = `${pin.name}: ${pin.coords} · ${detail}`;
       entry.marker.getElement()?.setAttribute("title", title);
       entry.marker.getElement()?.setAttribute("aria-label", title);
-      const key = JSON.stringify([pin.name, pin.coords, pin.temp, pin.status]);
+      const key = JSON.stringify([pin.name, pin.coords, detail]);
       if (entry.contentKey !== key) {
-        const content = popup(
-          pin.name,
-          pin.coords,
-          `${pin.temp} · ${TEMPERATURE_STATUS[pin.status].label}`,
-        );
+        const content = popup(pin.name, pin.coords, detail);
         if (entry.marker.getPopup()) entry.marker.setPopupContent(content);
         else entry.marker.bindPopup(content);
         entry.contentKey = key;
@@ -137,7 +142,12 @@ export class PersonMapController {
     }
     const fixed = drone && validFix(drone) ? drone : null;
     this.updateDrone(fixed);
-    const source = pins[0]?.locationNote ? "live" : "fixture";
+    const sourcePin = pins.find((pin) => !pin.manual);
+    const source = sourcePin
+      ? sourcePin.locationNote
+        ? "live"
+        : "fixture"
+      : this.fittedSource;
     if (pins.length && source !== this.fittedSource) {
       this.fittedSource = source;
       const points: [number, number][] = pins.map((pin) => [
@@ -239,7 +249,11 @@ export class PersonMapController {
     this.missionLayer?.render(shapes, selectedId, editing);
   }
   resize() {
-    this.map.invalidateSize({ pan: false });
+    this.map.invalidateSize({
+      pan: true,
+      animate: false,
+      debounceMoveend: true,
+    });
   }
   dispose() {
     this.observer.disconnect();

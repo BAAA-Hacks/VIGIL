@@ -14,7 +14,7 @@ export function MissionPanel({
   darkHeader = false,
 }: MissionPanelProps) {
   return (
-    <div className="flex h-full flex-col overflow-hidden rounded-[5px] border border-[color:var(--color-ink)]/25 bg-[var(--color-paper)]">
+    <div className="flex h-full flex-col overflow-hidden rounded-[12px] border border-[color:var(--color-ink)]/25 bg-[var(--color-paper)]">
       <div
         className={
           darkHeader
@@ -48,3 +48,4 @@ export function MissionPanel({
     </div>
   );
 }
+

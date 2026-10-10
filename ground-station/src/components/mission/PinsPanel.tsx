@@ -11,12 +11,14 @@ interface PinsPanelProps {
   pins: PinData[];
   expandedId: string | null;
   onSelect: (pin: PinData) => void;
+  onDelete: (pin: PinData) => void;
 }
 
 export function PinsPanel({
   pins,
   expandedId,
   onSelect,
+  onDelete,
   settings,
   message,
   reasons,
@@ -47,6 +49,7 @@ export function PinsPanel({
             pin={pin}
             expanded={expandedId === pin.id}
             onSelect={onSelect}
+            onDelete={onDelete}
           />
         ))}
       </div>
