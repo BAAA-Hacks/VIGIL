@@ -427,5 +427,16 @@ FodyWeavers.xsd
 # Official VS Code C# Dev Kit Extension exclusion
 #*.lscache
 
+# VIGIL local Python/data/model artifacts
+.venv/
+venv/
+datasets/
+models/
+reports/
+dataset_inspection/
+evaluation.json
+runs/
+*.pt
+
 # Editor settings are personal; keep the whole folder out of the repo
 .vscode/
