@@ -442,3 +442,16 @@ runs/
 !AI/checkpoints/
 !AI/checkpoints/thermal_mega_medium_crop_fold0_best.pt
 !AI/checkpoints/thermal_medium_range_yolo26m_best.pt
+
+# Editor settings are personal; keep the whole folder out of the repo
+.vscode/
+
+# Next.js
+.next/
+out/
+node_modules/
+dist/
+
+
+*.tsbuildinfo
+next-env.d.ts

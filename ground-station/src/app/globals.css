@@ -1,0 +1,80 @@
+@import "tailwindcss";
+
+/* Six base colors. Use these variables and opacity in Tailwind. */
+:root {
+  --color-paper: #fafaf7;
+  --color-ink: #474647;
+  --color-blue: #86bbd8;
+  --color-pink: #ff1053;
+  --color-yellow: #fff07c;
+  --color-peach: #ff9370;
+}
+
+/* Shared browser defaults. Component appearance lives in TSX utilities. */
+@layer base {
+  button,
+  select,
+  input {
+    font: inherit;
+  }
+  button,
+  select {
+    cursor: pointer;
+  }
+  button:disabled,
+  select:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+  button:focus-visible,
+  select:focus-visible,
+  a:focus-visible {
+    outline: 2px solid var(--color-ink);
+    outline-offset: 4px;
+  }
+  input {
+    accent-color: var(--color-ink);
+  }
+}
+
+/* Shared scrollbars: neutral tracks and rounded charcoal thumbs. */
+@layer base {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in srgb, var(--color-ink) 45%, transparent)
+      var(--color-paper);
+  }
+
+  @supports selector(::-webkit-scrollbar) {
+    * {
+      scrollbar-width: auto;
+      scrollbar-color: auto;
+    }
+
+    ::-webkit-scrollbar {
+      width: 10px;
+      height: 10px;
+    }
+
+    ::-webkit-scrollbar-track,
+    ::-webkit-scrollbar-corner {
+      background: var(--color-paper);
+    }
+
+    ::-webkit-scrollbar-thumb {
+      min-height: 28px;
+      border: 3px solid var(--color-paper);
+      border-radius: 999px;
+      background: color-mix(in srgb, var(--color-ink) 45%, transparent);
+      background-clip: padding-box;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+      background-color: color-mix(in srgb, var(--color-ink) 65%, transparent);
+    }
+
+    ::-webkit-scrollbar-thumb:active {
+      background-color: var(--color-ink);
+    }
+  }
+}

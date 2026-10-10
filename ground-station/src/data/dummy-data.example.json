@@ -1,0 +1,250 @@
+{
+  "people": [
+    {
+      "id": "1",
+      "name": "Alex Rivera",
+      "coordinates": {
+        "latitude": 34.0525,
+        "longitude": -118.243
+      },
+      "temperature_c": 36.6,
+      "temperature_status": "normal"
+    },
+    {
+      "id": "2",
+      "name": "Jordan Lee",
+      "coordinates": {
+        "latitude": 34.0536,
+        "longitude": -118.2406
+      },
+      "temperature_c": 37.0,
+      "temperature_status": "normal"
+    },
+    {
+      "id": "3",
+      "name": "Sam Patel",
+      "coordinates": {
+        "latitude": 34.0547,
+        "longitude": -118.2442
+      },
+      "temperature_c": 38.4,
+      "temperature_status": "elevated"
+    },
+    {
+      "id": "4",
+      "name": "Casey Nguyen",
+      "coordinates": {
+        "latitude": 34.0514,
+        "longitude": -118.2418
+      },
+      "temperature_c": 36.9,
+      "temperature_status": "normal"
+    },
+    {
+      "id": "5",
+      "name": "Morgan Diaz",
+      "coordinates": {
+        "latitude": 34.0558,
+        "longitude": -118.2418
+      },
+      "temperature_c": 35.1,
+      "temperature_status": "low"
+    },
+    {
+      "id": "6",
+      "name": "Riley Chen",
+      "coordinates": {
+        "latitude": 34.0503,
+        "longitude": -118.2454
+      },
+      "temperature_c": 36.8,
+      "temperature_status": "normal"
+    },
+    {
+      "id": "7",
+      "name": "Taylor Brooks",
+      "coordinates": {
+        "latitude": 34.0536,
+        "longitude": -118.2466
+      },
+      "temperature_c": 38.9,
+      "temperature_status": "elevated"
+    },
+    {
+      "id": "8",
+      "name": "Jamie Ortiz",
+      "coordinates": {
+        "latitude": 34.0547,
+        "longitude": -118.2394
+      },
+      "temperature_c": 37.1,
+      "temperature_status": "normal"
+    },
+    {
+      "id": "9",
+      "name": "Avery Kim",
+      "coordinates": {
+        "latitude": 34.0514,
+        "longitude": -118.2442
+      },
+      "temperature_c": 34.9,
+      "temperature_status": "low"
+    },
+    {
+      "id": "10",
+      "name": "Quinn Harper",
+      "coordinates": {
+        "latitude": 34.0525,
+        "longitude": -118.2394
+      },
+      "temperature_c": 36.7,
+      "temperature_status": "normal"
+    }
+  ],
+  "pin_test": {
+    "location_config": {
+      "takeoffElevationM": 500,
+      "startingCameraHeightM": 0,
+      "mountDownDeg": 20,
+      "frameClockOffsetMs": 0,
+      "nativeImageConfirmed": true,
+      "attitudeConventionConfirmed": true,
+      "forwardFlightConfirmed": false,
+      "headingOffsetDeg": 0
+    },
+    "telemetry": {
+      "timestamp_ms": 0,
+      "armed": true,
+      "battery_v": 15.6,
+      "roll_deg": 0.4,
+      "pitch_deg": -0.6,
+      "yaw_deg": 0,
+      "altitude_m": 510,
+      "lat": 34.0525,
+      "lon": -118.243,
+      "fix_valid": true,
+      "link_state": "connected",
+      "flight_mode": "HOLD",
+      "climb_ms": 0,
+      "satellites": 14,
+      "link": {
+        "uplink_lq": 100,
+        "uplink_rssi_dbm": -48,
+        "downlink_lq": 100,
+        "downlink_rssi_dbm": -51
+      },
+      "data_age_ms": 0,
+      "source": "synthetic-pin-test",
+      "yaw_reference": "absolute",
+      "speed_ms": 0,
+      "course_deg": 0,
+      "distance_home_m": 0,
+      "pcb_temp_c": 38.5,
+      "battery_pct": 82,
+      "home": {
+        "lat": 34.0525,
+        "lon": -118.243
+      }
+    },
+    "frame": {
+      "width": 160,
+      "height": 120,
+      "pixel_format": "gray8"
+    },
+    "detection": {
+      "processing_ms": 38,
+      "detections": [
+        {
+          "track_id": "T01",
+          "class": "person",
+          "confidence": 0.97,
+          "bbox_xyxy_norm": [0.095, 0.15, 0.145, 0.25],
+          "feet_visible": true,
+          "temperature_c": 36.6,
+          "temperature_status": "normal"
+        },
+        {
+          "track_id": "T02",
+          "class": "person",
+          "confidence": 0.95,
+          "bbox_xyxy_norm": [0.395, 0.13, 0.445, 0.22],
+          "feet_visible": true,
+          "temperature_c": 37.0,
+          "temperature_status": "normal"
+        },
+        {
+          "track_id": "T03",
+          "class": "person",
+          "confidence": 0.93,
+          "bbox_xyxy_norm": [0.695, 0.18, 0.745, 0.28],
+          "feet_visible": true,
+          "temperature_c": 38.4,
+          "temperature_status": "elevated"
+        },
+        {
+          "track_id": "T04",
+          "class": "person",
+          "confidence": 0.91,
+          "bbox_xyxy_norm": [0.89, 0.24, 0.95, 0.36],
+          "feet_visible": true,
+          "temperature_c": 36.9,
+          "temperature_status": "normal"
+        },
+        {
+          "track_id": "T05",
+          "class": "person",
+          "confidence": 0.89,
+          "bbox_xyxy_norm": [0.185, 0.3, 0.255, 0.45],
+          "feet_visible": true,
+          "temperature_c": 35.1,
+          "temperature_status": "low"
+        },
+        {
+          "track_id": "T06",
+          "class": "person",
+          "confidence": 0.87,
+          "bbox_xyxy_norm": [0.625, 0.36, 0.695, 0.52],
+          "feet_visible": true,
+          "temperature_c": 36.8,
+          "temperature_status": "normal"
+        },
+        {
+          "track_id": "T07",
+          "class": "person",
+          "confidence": 0.85,
+          "bbox_xyxy_norm": [0.38, 0.46, 0.46, 0.66],
+          "feet_visible": true,
+          "temperature_c": 38.9,
+          "temperature_status": "elevated"
+        },
+        {
+          "track_id": "T08",
+          "class": "person",
+          "confidence": 0.83,
+          "bbox_xyxy_norm": [0.815, 0.51, 0.905, 0.73],
+          "feet_visible": true,
+          "temperature_c": 37.1,
+          "temperature_status": "normal"
+        },
+        {
+          "track_id": "T09",
+          "class": "person",
+          "confidence": 0.81,
+          "bbox_xyxy_norm": [0.05, 0.58, 0.15, 0.86],
+          "feet_visible": true,
+          "temperature_c": 34.9,
+          "temperature_status": "low"
+        },
+        {
+          "track_id": "T10",
+          "class": "person",
+          "confidence": 0.79,
+          "bbox_xyxy_norm": [0.57, 0.65, 0.67, 0.95],
+          "feet_visible": true,
+          "temperature_c": 36.7,
+          "temperature_status": "normal"
+        }
+      ]
+    }
+  }
+}
