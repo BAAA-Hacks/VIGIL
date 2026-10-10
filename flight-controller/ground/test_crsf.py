@@ -8,7 +8,14 @@ import math
 import unittest
 
 import crsf
-from telemetry_bridge import TelemetryState
+import json
+import socket
+import time
+import urllib.request
+from unittest import mock
+
+import telemetry_bridge
+from telemetry_bridge import SyntheticSource, TelemetryState
 
 
 def frame(ftype, payload, address=0xEA):
@@ -140,6 +147,85 @@ class VehicleTelemetryMapping(unittest.TestCase):
         self.feed(st, frame(crsf.LINK_STATISTICS, bytes([0, 0, 0, 0, 0, 7, 3, 0, 0, 0])), 1.0)
         self.assertEqual(st.snapshot(1.0)["link_state"], "no_data")
 
+
+    def test_floating_battery_input_is_unavailable(self):
+        # No pack on the XT60: the divider input floats at a few tens of mV.
+        st = TelemetryState()
+        self.feed(st, frame(crsf.BATTERY, battery_payload(0.03)), 1.0)
+        snap = st.snapshot(1.0)
+        self.assertIsNone(snap["battery_v"])
+        self.assertIsNone(snap["battery_pct"])
+
+    def test_home_distance_and_armed_time(self):
+        st = TelemetryState()
+        self.feed(st, frame(crsf.FLIGHT_MODE, b"OK\x00") + frame(crsf.GPS, gps_payload(28.6, -81.2, 0, 10)), 1.0)
+        self.assertIsNone(st.snapshot(1.0)["home"])  # home is set at arming, like INAV
+        self.feed(st, frame(crsf.FLIGHT_MODE, b"ANGL\x00"), 2.0)
+        self.feed(st, frame(crsf.GPS, gps_payload(28.6 + 100 / 111320, -81.2, 10, 10, 18.0, 90.0)), 5.0)
+        snap = st.snapshot(5.0)
+        self.assertEqual(snap["home"], {"lat": 28.6, "lon": -81.2})
+        self.assertAlmostEqual(snap["distance_home_m"], 100.0, delta=1.0)
+        self.assertEqual((snap["speed_ms"], snap["course_deg"], snap["armed_time_s"]), (5.0, 90.0, 3.0))
+        self.feed(st, frame(crsf.FLIGHT_MODE, b"OK\x00"), 6.0)
+        self.assertIsNone(st.snapshot(6.0)["armed_time_s"])
+
+
+class Synthetic(unittest.TestCase):
+    def run_mission(self):
+        """Step a SyntheticSource through one full cycle without sleeping."""
+        src = SyntheticSource()
+        st = TelemetryState(relative_yaw=True, source="synthetic")
+        parser = crsf.FrameParser()
+        snaps = []
+        with mock.patch.object(telemetry_bridge.time, "sleep"), \
+             mock.patch.object(telemetry_bridge.time, "monotonic") as clock:
+            for i in range(int(src.cycle * 10)):
+                now = src.t0 + i / 10
+                clock.return_value = now
+                for ftype, payload in parser.feed(src.read(256)):
+                    st.update(crsf.decode(ftype, payload), now)
+                snaps.append(st.snapshot(now))
+        return snaps
+
+    def test_mission_exercises_every_field(self):
+        snaps = self.run_mission()
+        for key in ("armed", "battery_v", "roll_deg", "pitch_deg", "yaw_deg", "altitude_m", "lat", "lon",
+                    "fix_valid", "battery_pct", "climb_ms", "speed_ms", "course_deg", "satellites",
+                    "home", "distance_home_m", "armed_time_s", "link"):
+            self.assertTrue(any(s[key] not in (None, 0, False) for s in snaps), key)
+        self.assertEqual({s["link_state"] for s in snaps}, {"connected", "degraded", "lost"})
+        modes = [s["flight_mode"] for s in snaps]
+        self.assertEqual([m for i, m in enumerate(modes) if m and m != modes[i - 1]],
+                         ["WAIT", "OK", "ANGL", "AH", "HOLD", "WP", "RTH", "OK"])
+        self.assertTrue(any(s["fix_valid"] is False for s in snaps))   # waiting for satellites
+        self.assertEqual(max(s["altitude_m"] or 0 for s in snaps), 10)
+        self.assertGreater(max(s["distance_home_m"] or 0 for s in snaps), 50)  # far corner falls in the dropout
+        self.assertTrue(all(s["source"] == "synthetic" for s in snaps))
+
+
+class ServerSentEvents(unittest.TestCase):
+    def test_stream_and_latest(self):
+        with socket.socket() as probe:
+            probe.bind(("127.0.0.1", 0))
+            port = probe.getsockname()[1]
+        hub = telemetry_bridge.start_http("127.0.0.1", port)
+        hub.publish(json.dumps({"n": 1}))
+        base = f"http://127.0.0.1:{port}"
+
+        with urllib.request.urlopen(base + "/latest", timeout=2) as r:
+            self.assertEqual(r.headers["Access-Control-Allow-Origin"], "*")
+            self.assertEqual(json.loads(r.read()), {"n": 1})
+
+        with urllib.request.urlopen(base + "/telemetry", timeout=2) as r:
+            self.assertTrue(r.headers["Content-Type"].startswith("text/event-stream"))
+            self.assertEqual(r.headers["Access-Control-Allow-Origin"], "*")
+            self.assertEqual(r.readline(), b"retry: 1000\n")
+            r.readline()
+            self.assertEqual(r.readline(), b'data: {"n": 1}\n')  # latest value on connect
+            r.readline()
+            time.sleep(0.05)
+            hub.publish(json.dumps({"n": 2}))
+            self.assertEqual(r.readline(), b'data: {"n": 2}\n')  # then each new one
 
 if __name__ == "__main__":
     unittest.main()
