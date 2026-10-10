@@ -46,6 +46,14 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data", required=True, type=Path, help="Dataset root or data.yaml")
     parser.add_argument("--model", default="yolo26s.pt")
+    parser.add_argument(
+        "--pretrained-weights",
+        default=None,
+        help=(
+            "Optional checkpoint to transfer into a model architecture supplied by --model. "
+            "Use this for variants such as a P2 detection head."
+        ),
+    )
     parser.add_argument("--epochs", type=int, default=50)
     parser.add_argument("--imgsz", type=int, default=640)
     parser.add_argument(
@@ -136,6 +144,9 @@ def main() -> None:
     )
 
     model = load_model(args.model)
+    if args.pretrained_weights:
+        print(f"Transferring compatible weights from: {args.pretrained_weights}")
+        model.load(args.pretrained_weights)
     settings = {
         "data": str(runtime_yaml),
         "epochs": args.epochs,
@@ -166,7 +177,10 @@ def main() -> None:
         f"Training pool: {train_count} images; sampling {sampled_count} per epoch "
         f"({args.epoch_fraction:.1%}); validating on all {val_count} images"
     )
-    print(f"Model: {args.model}; freeze={args.freeze}; device={args.device}")
+    print(
+        f"Model: {args.model}; pretrained_weights={args.pretrained_weights}; "
+        f"freeze={args.freeze}; device={args.device}"
+    )
     if args.epoch_fraction < 1.0:
         from AI.scripts.epoch_sampler import make_resampled_detection_trainer
 

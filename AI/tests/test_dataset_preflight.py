@@ -18,10 +18,17 @@ from AI.scripts.dataset_utils import (
     split_images,
 )
 from AI.scripts.select_holdout_sequences import choose_holdout
-from AI.scripts.prepare_medium_crops import crop_boxes, medium_crop_bounds
+from AI.scripts.prepare_medium_crops import centered_crop_bounds, crop_boxes, medium_crop_bounds
 
 
 class DatasetPreflightTests(unittest.TestCase):
+    def test_centered_negative_crop_preserves_aspect_and_scale(self) -> None:
+        bounds = centered_crop_bounds(640, 512, 0.5, 4 / 3)
+        left, top, right, bottom = bounds
+        self.assertAlmostEqual((right - left) / (bottom - top), 4 / 3, places=2)
+        self.assertAlmostEqual((left + right) / 2, 320, delta=0.5)
+        self.assertAlmostEqual((top + bottom) / 2, 256, delta=0.5)
+
     def test_medium_crop_enlarges_centered_person_and_preserves_aspect(self) -> None:
         box = YoloBox(0, 0.5, 0.5, 0.1, 0.2)
         bounds = medium_crop_bounds(640, 512, [box], 0.5, 4 / 3, 0.15)

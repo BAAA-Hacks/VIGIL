@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Add training-only medium-FOV crops from original WiSARD and POP images."""
+"""Add medium-FOV crops from original WiSARD and POP images."""
 
 from __future__ import annotations
 
@@ -54,7 +54,45 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--width", type=int, default=160)
     parser.add_argument("--height", type=int, default=120)
     parser.add_argument("--padding-value", type=int, default=114, choices=range(256), metavar="0-255")
+    parser.add_argument(
+        "--crop-evaluation-splits",
+        action="store_true",
+        help=(
+            "Use medium-FOV WiSARD crops for val/test as well as train. Positive crops "
+            "follow the annotated target; negative crops use a deterministic center view."
+        ),
+    )
     return parser.parse_args()
+
+
+def centered_crop_bounds(
+    source_width: int,
+    source_height: int,
+    crop_scale: float,
+    target_aspect: float,
+) -> tuple[int, int, int, int]:
+    """Return a centered target-aspect crop for a negative frame."""
+    if source_width <= 0 or source_height <= 0:
+        raise ValueError("Image dimensions must be positive")
+    if not 0.0 < crop_scale <= 1.0 or target_aspect <= 0.0:
+        raise ValueError("Invalid crop geometry settings")
+    crop_width = source_width * crop_scale
+    crop_height = source_height * crop_scale
+    if crop_width / crop_height < target_aspect:
+        crop_width = crop_height * target_aspect
+    else:
+        crop_height = crop_width / target_aspect
+    if crop_height > source_height:
+        crop_height = float(source_height)
+        crop_width = crop_height * target_aspect
+    if crop_width > source_width:
+        crop_width = float(source_width)
+        crop_height = crop_width / target_aspect
+    left = int(round((source_width - crop_width) / 2.0))
+    top = int(round((source_height - crop_height) / 2.0))
+    right = min(source_width, max(left + 1, int(round(left + crop_width))))
+    bottom = min(source_height, max(top + 1, int(round(top + crop_height))))
+    return left, top, right, bottom
 
 
 def medium_crop_bounds(
@@ -160,16 +198,21 @@ def write_medium_crop(
     if image is None:
         raise SystemExit(f"Could not decode image: {source}")
     source_height, source_width = image.shape[:2]
-    bounds = medium_crop_bounds(
-        source_width,
-        source_height,
-        boxes,
-        args.crop_scale,
-        args.width / args.height,
-        args.box_margin,
-    )
+    if boxes:
+        bounds = medium_crop_bounds(
+            source_width,
+            source_height,
+            boxes,
+            args.crop_scale,
+            args.width / args.height,
+            args.box_margin,
+        )
+    else:
+        bounds = centered_crop_bounds(
+            source_width, source_height, args.crop_scale, args.width / args.height
+        )
     cropped_boxes = crop_boxes(boxes, source_width, source_height, bounds, args.min_visibility)
-    if not cropped_boxes:
+    if boxes and not cropped_boxes:
         raise SystemExit(f"Medium crop lost every annotation: {source}")
     left, top, right, bottom = bounds
     cropped = image[top:bottom, left:right]
@@ -197,9 +240,8 @@ def write_medium_crop(
     output_label.parent.mkdir(parents=True, exist_ok=True)
     if not cv2.imwrite(str(output_image), simulated):
         raise SystemExit(f"Could not write image: {output_image}")
-    output_label.write_text(
-        "\n".join(format_yolo_box(box) for box in transformed) + "\n", encoding="utf-8"
-    )
+    label_text = "\n".join(format_yolo_box(box) for box in transformed)
+    output_label.write_text(label_text + ("\n" if label_text else ""), encoding="utf-8")
     return len(transformed)
 
 
@@ -209,15 +251,17 @@ def prepare_wisard_crops(
     unique_images: dict[Path, list[YoloBox]] = {}
     for yaml_path in source_fold_yamls:
         config = load_dataset_config(yaml_path)
-        for image in split_images(config, "train"):
-            image = absolute_path(image)
-            if image in unique_images:
-                continue
-            boxes, errors = read_yolo_labels(label_path_for_image(image))
-            if errors:
-                raise SystemExit("\n".join(errors))
-            if boxes:
-                unique_images[image] = boxes
+        split_names = ("train", "val", "test") if args.crop_evaluation_splits else ("train",)
+        for split in split_names:
+            for image in split_images(config, split):
+                image = absolute_path(image)
+                if image in unique_images:
+                    continue
+                boxes, errors = read_yolo_labels(label_path_for_image(image))
+                if errors:
+                    raise SystemExit("\n".join(errors))
+                if boxes or args.crop_evaluation_splits:
+                    unique_images[image] = boxes
 
     mapping: dict[Path, Path] = {}
     annotations = 0
@@ -310,11 +354,20 @@ def main() -> None:
             if absolute_path(path) in wisard_mapping
         ]
         train = base_train + wisard_crops + pop_crops
-        splits = {
-            "train": train,
-            "val": [absolute_path(path) for path in split_images(combined_config, "val")],
-            "test": [absolute_path(path) for path in split_images(combined_config, "test")],
-        }
+        if args.crop_evaluation_splits:
+            evaluation_splits = {
+                split: [
+                    wisard_mapping[absolute_path(path)]
+                    for path in split_images(source_config, split)
+                ]
+                for split in ("val", "test")
+            }
+        else:
+            evaluation_splits = {
+                split: [absolute_path(path) for path in split_images(combined_config, split)]
+                for split in ("val", "test")
+            }
+        splits = {"train": train, **evaluation_splits}
         for split, paths in splits.items():
             (fold_dir / f"{split}.txt").write_text(
                 "\n".join(map(str, paths)) + "\n", encoding="utf-8"
@@ -324,7 +377,10 @@ def main() -> None:
         for split in splits:
             output_yaml[split] = str((fold_dir / f"{split}.txt").resolve())
         output_yaml["vigil_medium_crops"] = {
-            "training_only": True,
+            "training_only": not args.crop_evaluation_splits,
+            "evaluation_splits_cropped": args.crop_evaluation_splits,
+            "positive_crop_policy": "annotation_following",
+            "negative_crop_policy": "center",
             "source_resolution": True,
             "crop_scale": args.crop_scale,
             "box_margin": args.box_margin,
@@ -352,7 +408,10 @@ def main() -> None:
         "wisard_source_fold_root": str(source_root),
         "pop_train_root": str(args.pop_train.expanduser().resolve()),
         "medium_crop": {
-            "training_only": True,
+            "training_only": not args.crop_evaluation_splits,
+            "evaluation_splits_cropped": args.crop_evaluation_splits,
+            "positive_crop_policy": "annotation_following",
+            "negative_crop_policy": "center",
             "crop_scale": args.crop_scale,
             "box_margin": args.box_margin,
             "minimum_visibility": args.min_visibility,
