@@ -19,6 +19,7 @@ defaults noreboot
 # Fixed Wing Approach
 
 # features
+feature PWM_OUTPUT_ENABLE
 
 # beeper
 
@@ -73,21 +74,21 @@ set dynamic_gyro_notch_q = 250
 set dynamic_gyro_notch_min_hz = 60
 set dynamic_gyro_notch_mode = 3D
 set setpoint_kalman_q = 200
-set gyro_zero_x = 10
-set gyro_zero_y = -19
+set gyro_zero_x = 6
+set gyro_zero_y = -14
 set gyro_zero_z = -7
-set ins_gravity_cmss =  980.706
+set ins_gravity_cmss =  981.150
 set acc_hardware = LSM6DXX
-set acczero_x = 18
-set acczero_y = -32
+set acczero_x = 17
+set acczero_y = -31
 set acczero_z = 5
-set accgain_x = 4090
-set accgain_y = 4059
-set accgain_z = 4094
+set accgain_x = 4089
+set accgain_y = 4058
+set accgain_z = 4095
 set align_mag = CW270FLIP
 set mag_hardware = NONE
 set blackbox_rate_denom = 2
-set motor_pwm_protocol = DSHOT300
+set motor_pwm_protocol = STANDARD
 set failsafe_procedure = DROP
 set align_board_yaw = 2700
 set applied_defaults = 5
@@ -192,6 +193,7 @@ set yaw_rate = 60
 # battery_profile
 battery_profile 1
 
+set throttle_idle =  5.000
 
 # battery_profile
 battery_profile 2
