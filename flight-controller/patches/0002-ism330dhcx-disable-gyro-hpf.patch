@@ -1,0 +1,16 @@
+--- a/src/main/drivers/accgyro/accgyro_lsm6dxx.c
++++ b/src/main/drivers/accgyro/accgyro_lsm6dxx.c
+@@ -135,7 +135,12 @@
+     lsm6dxxWriteRegisterBits(dev, LSM6DXX_REG_CTRL6_C, (lsm6dxxIsDsoFamily() ? LSM6DXX_MASK_CTRL6_C : LSM6DSL_MASK_CTRL6_C), (LSM6DXX_VAL_CTRL6_C_XL_HM_MODE | getLsmDlpfBandwidth(gyro)), 1);
+ 
+     // Configure control register 7
+-    lsm6dxxWriteRegisterBits(dev, LSM6DXX_REG_CTRL7_G, LSM6DXX_MASK_CTRL7_G, (LSM6DXX_VAL_CTRL7_G_HP_EN_G | LSM6DXX_VAL_CTRL7_G_HPM_G_16), 1);
++    // ISM330DHCX: leave the gyro high-pass filter off. It removes the gyro bias over ~30 s after
++    // power-up, after INAV's boot calibration has already subtracted that bias, which leaves a
++    // persistent offset of about 1 dps (attitude drifts several degrees while sitting still).
++    if (lsm6dID != ISM330DHCX_CHIP_ID) {
++        lsm6dxxWriteRegisterBits(dev, LSM6DXX_REG_CTRL7_G, LSM6DXX_MASK_CTRL7_G, (LSM6DXX_VAL_CTRL7_G_HP_EN_G | LSM6DXX_VAL_CTRL7_G_HPM_G_16), 1);
++    }
+ 
+     // Configure control register 9
+     // disable I3C interface
