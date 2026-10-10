@@ -38,21 +38,21 @@ The camera/backend adapter must convert raw thermal samples to an encoded image 
 
 ## Source structure
 
-- `src/components/Dashboard.tsx`: assembles the dashboard and owns display preferences.
-- `src/components/dashboard/`: sidebar, header, metrics, thermal panel/image, detection overlay/insight, and feed controls.
-- `src/hooks/useVigilFeed.ts`: demo timer, external event subscriptions, feed lifecycle, and cleanup.
-- `src/lib/demoFeed.ts`: reproducible demo frames and detections.
-- `src/lib/feedStatus.ts`: frame matching, freshness, and status calculations.
+- `src/components/mission/`: the mission page (map, thermal viewer, pins, drone info, location settings).
+- `src/hooks/`: telemetry SSE (`useVehicleTelemetry`), pin-test replay (`usePinTest`), and the live adapter (`usePersonLocations`).
+- `src/lib/events.ts`: `vigil:*` event names and the typed `dispatchVigil` helper.
+- `src/lib/locationSnapshot.ts`, `geolocation.ts`, `terrainGrid.ts`: pure person-location projection.
+- `src/lib/personMapController.ts`, `smoothMapZoom.ts`: Leaflet map ownership and zoom.
 - `src/lib/thermalSimulation.ts`: canvas scene generation and palettes.
 - `src/lib/validation.ts`: validation of external event payloads.
 - `src/types/vigil.ts`: shared domain types.
-- `tests/vigil.test.ts`: regression tests for integration rules and simulation.
+- `tests/`: regression tests for validation, simulation, projection, pin-test and drone readings.
 
 Run `npm test`, `npm run typecheck`, and `npm run build` to verify changes. Run `npm run format` to format source and tests. Tests use Node 22's TypeScript stripping support.
 
 ### Active mission page
 
-The current `/` page renders `src/components/mission/MissionDashboard.tsx`, composing `MissionHeader`, `MapArea`, `DroneInfoPanel`, `PinsPanel`, and `TestDataToggle`. `MissionPanel` shares the panel frame; `PersonPin` owns each person row and its details; `ViewerPane` shares main/inset placement and promotion controls; `MapViewSelect` defines the typed map options. Drone reading formatting lives in `src/lib/droneReadings.ts`. `StatBox` is reusable and declared outside the parent render. Pins and telemetry are passed as typed props; mock values are stored in `src/data/missionDemo.ts` and their types in `src/types/mission.ts`. Scrollbar styling uses Tailwind utilities with root color variables. The original thermal dashboard remains available as `src/components/Dashboard.tsx` but is not mounted by the active route.
+The current `/` page renders `src/components/mission/MissionDashboard.tsx`, composing `MissionHeader`, `MapArea`, `DroneInfoPanel`, `PinsPanel`, and `TestDataToggle`. `MissionPanel` shares the panel frame; `PersonPin` owns each person row and its details; `ViewerPane` shares main/inset placement and promotion controls; `MapViewSelect` defines the typed map options. Drone reading formatting lives in `src/lib/droneReadings.ts`. `StatBox` is reusable and declared outside the parent render. Pins and telemetry are passed as typed props; mock values are stored in `src/data/missionDemo.ts` and their types in `src/types/mission.ts`. Scrollbar styling uses Tailwind utilities with root color variables.
 
 ### Person map and view switching
 
@@ -60,7 +60,7 @@ Person records include numeric latitude and longitude in addition to their displ
 
 ### Local dummy data
 
-`src/data/dummy-data.json` is the single local fixture for 10 people and all drone telemetry fields. It is gitignored and must be provided locally before starting or building the app on a new checkout. It stores numeric coordinates, Celsius temperatures, speed in m/s, altitude and distance in meters, course in degrees, and flight duration in seconds. `missionDemo.ts` converts these values into display strings. Person statuses are explicit demo labels; temperature is a simulated central reading. The current UI shows person temperatures in Fahrenheit and PCB temperature in Celsius.
+`src/data/dummy-data.example.json` is the committed fixture for 10 people and the pin-test replay (`pin_test`), so a fresh checkout builds and tests without extra files. To use different local data, put a file with the same shape at the gitignored `src/data/dummy-data.json`; `next.config.mjs` then aliases the example import to it for `dev` and `build` (restart the dev server after adding or removing it). Tests always use the committed example. Both are read through `src/data/fixture.ts`. The fixture stores numeric coordinates and Celsius temperatures; `missionDemo.ts` converts these values into display strings. Person statuses are explicit demo labels; temperature is a simulated central reading. The current UI shows person temperatures in Fahrenheit and PCB temperature in Celsius.
 
 Ground elevation: opening a person dropdown queries /api/elevation, which sends the selected latitude and longitude to USGS EPQS. Successful upstream requests are cached for 24 hours. No-data and service failures show Unavailable with a retry control. Ground elevation is distinct from drone altitude.
 
@@ -69,7 +69,7 @@ The dashboard's /api/telemetry SSE route runs python ../flight-controller/ground
 
 Synthetic telemetry starts stopped. Use Start test / Stop test in the bottom right. Stopping closes the stream and terminates its Python process. Flight time measures elapsed time from the first valid received packet in the current session, regardless of arming. A two-second packet gap, connection error, or Stop resets it to 00:00. The next packet begins a new session.
 
-Elevation API requests share a server-wide gate with at least 5.1 seconds between request starts, including failed requests. Cached responses remain enabled. This applies to the single local server process; separate server processes would need a shared limiter. Camera defaults are in src/lib/cameraConfig.ts: FLIR Lepton 3.5, forward, 20 degrees down from horizontal, 160x120, nominal 57-degree horizontal / 71-degree diagonal FOV. FLIR specifies less than 13% optical distortion; accurate pixel-to-ray projection requires measured intrinsics and distortion coefficients. The ideal square-pixel pinhole estimate (44.3-degree vertical / 68.3-degree diagonal) is only an approximation, not a replacement for the manufacturer specifications. Source: https://flir.netx.net/file/asset/13333/original/attachment/ (Rev 400, Table 1). Person geolocation still requires takeoff-reference capture and an agreed north-referenced heading estimate; relative yaw is not silently treated as absolute heading.
+Elevation API requests share a server-wide gate with at least 5.1 seconds between request starts, including failed requests. Answers (including no-coverage) are cached in-process for 24 hours per coordinate rounded to 5 decimals, so repeat lookups skip the gate, and the response carries a 24-hour private Cache-Control. This applies to the single local server process; separate server processes would need a shared limiter. Camera defaults are in src/lib/cameraConfig.ts: FLIR Lepton 3.5, forward, 20 degrees down from horizontal, 160x120, nominal 57-degree horizontal / 71-degree diagonal FOV. FLIR specifies less than 13% optical distortion; accurate pixel-to-ray projection requires measured intrinsics and distortion coefficients. The ideal square-pixel pinhole estimate (44.3-degree vertical / 68.3-degree diagonal) is only an approximation, not a replacement for the manufacturer specifications. Source: https://flir.netx.net/file/asset/13333/original/attachment/ (Rev 400, Table 1). Person geolocation still requires takeoff-reference capture and an agreed north-referenced heading estimate; relative yaw is not silently treated as absolute heading.
 
 
 ## Person coordinate estimates
@@ -98,7 +98,7 @@ Selected-person USGS lookup coordinates are frozen when its details open. Tracki
 
 Use **Test pins** at the bottom right to replay complete ELRS-format telemetry plus native 160×120 Wi-Fi-format thermal frames and ten tracked person detections at 5 Hz. Stop pin test clears the replay and restores the existing location configuration. Start test still runs the original Python bridge; the two test sources are mutually exclusive.
 
-All replay values are under pin_test in the existing gitignored src/data/dummy-data.json. The fixture drone is at 34.0525, -118.243, 510 m above sea level, with 500 m local flat terrain (10 m above ground), a 20° camera mount, zero roll/pitch/yaw and known north offset. No person coordinates are supplied to the replay: pins are projected from box bottoms. Frame IDs/capture timestamps are renewed together on each tick. The thermal image silhouettes use those same boxes. Fixture terrain avoids USGS queries during playback/selection.
+All replay values are under pin_test in the demo fixture (src/data/dummy-data.example.json, or a local dummy-data.json override). The fixture drone is at 34.0525, -118.243, 510 m above sea level, with 500 m local flat terrain (10 m above ground), a 20° camera mount, zero roll/pitch/yaw and known north offset. No person coordinates are supplied to the replay: pins are projected from box bottoms. Frame IDs/capture timestamps are renewed together on each tick. The thermal image silhouettes use those same boxes. Fixture terrain avoids USGS queries during playback/selection.
 
 A blue square D pin marks fresh valid drone GPS, with coordinates and sea-level altitude in its popup. Person pins remain numbered circles. Stale/invalid drone positions are removed. Test imagery and temperature labels are synthetic, not camera measurements.
 

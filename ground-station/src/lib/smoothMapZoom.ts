@@ -94,4 +94,3 @@ export function enableSmoothMapZoom(map: LeafletMap): () => void {
     reducedMotion.removeEventListener("change", motionChange);
   };
 }
-

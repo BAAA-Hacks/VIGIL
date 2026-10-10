@@ -1,5 +1,16 @@
 import { elevationRequestGate } from "../../../lib/elevationRateLimit";
+import {
+  cachedElevation,
+  elevationKey,
+  storeElevation,
+  type ElevationAnswer,
+} from "../../../lib/elevationCache";
 import { NextRequest, NextResponse } from "next/server";
+const respond = ({ status, body }: ElevationAnswer) =>
+  NextResponse.json(body, {
+    status,
+    headers: { "Cache-Control": "private, max-age=86400" },
+  });
 export async function GET(request: NextRequest) {
   const lat = request.nextUrl.searchParams.get("lat");
   const lon = request.nextUrl.searchParams.get("lon");
@@ -18,6 +29,9 @@ export async function GET(request: NextRequest) {
       { status: 400 },
     );
   }
+  const key = elevationKey(latitude, longitude);
+  const cached = cachedElevation(key);
+  if (cached) return respond(cached);
   const url = new URL("https://epqs.nationalmap.gov/v1/json");
   url.search = new URLSearchParams({
     x: String(longitude),
@@ -42,20 +56,25 @@ export async function GET(request: NextRequest) {
         : typeof data.value === "string" && data.value.trim()
           ? Number(data.value)
           : NaN;
-    if (!Number.isFinite(elevation) || elevation <= -1000000) {
-      return NextResponse.json(
-        { error: "No USGS elevation coverage at these coordinates." },
-        { status: 404 },
-      );
-    }
-    return NextResponse.json({
-      latitude,
-      longitude,
-      elevation_m: elevation,
-      source: "USGS 3DEP / EPQS",
-      resolution_m: data.resolution ?? null,
-      acquisition_date: data.AcquisitionDate ?? null,
-    });
+    const answer: ElevationAnswer =
+      !Number.isFinite(elevation) || elevation <= -1000000
+        ? {
+            status: 404,
+            body: { error: "No USGS elevation coverage at these coordinates." },
+          }
+        : {
+            status: 200,
+            body: {
+              latitude,
+              longitude,
+              elevation_m: elevation,
+              source: "USGS 3DEP / EPQS",
+              resolution_m: data.resolution ?? null,
+              acquisition_date: data.AcquisitionDate ?? null,
+            },
+          };
+    storeElevation(key, answer);
+    return respond(answer);
   } catch {
     return NextResponse.json(
       { error: "Elevation lookup unavailable. Try again." },

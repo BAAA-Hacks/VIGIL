@@ -1,5 +1,3 @@
-export type FeedMode = "demo" | "live";
-export type DemoScenario = "human" | "empty" | "disconnected";
 export type ThermalPalette = "iron" | "white";
 export type BoundingBox = [number, number, number, number];
 export interface ThermalFrame {

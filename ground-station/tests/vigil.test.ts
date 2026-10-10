@@ -1,55 +1,24 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { createDemoSample } from "../src/lib/demoFeed.ts";
-import { deriveFeedStatus } from "../src/lib/feedStatus.ts";
 import { isDetectionResult, isThermalFrame } from "../src/lib/validation.ts";
 import { drawThermalScene } from "../src/lib/thermalSimulation.ts";
 
-const sample = createDemoSample("human", 10_000);
-const snapshot = {
-  ...sample,
-  now: 10_100,
-  received: 10_000,
-  demo: true,
-  paused: false,
-  scenario: "human" as const,
+const sample = {
+  frame: { frame_id: "f-1", timestamp_ms: 10_000, width: 160, height: 120 },
+  detection: {
+    frame_id: "f-1",
+    processing_ms: 38,
+    detections: [
+      {
+        class: "person",
+        confidence: 0.95,
+        bbox_xyxy_norm: [0.4, 0.3, 0.6, 0.8],
+      },
+    ],
+  },
 };
-test("demo detections match their frame, and empty scenes have no detections", () => {
-  assert.equal(sample.frame.frame_id, sample.detection.frame_id);
+test("a well-formed detection result is accepted", () => {
   assert.equal(isDetectionResult(sample.detection), true);
-  assert.equal(
-    createDemoSample("empty", 10_000).detection.detections.length,
-    0,
-  );
-});
-test("only fresh detections with the displayed frame ID are exposed", () => {
-  assert.equal(deriveFeedStatus(snapshot).humans.length, 1);
-  assert.equal(
-    deriveFeedStatus({
-      ...snapshot,
-      detection: { ...sample.detection, frame_id: "other" },
-    }).current,
-    null,
-  );
-  assert.equal(deriveFeedStatus({ ...snapshot, now: 12_001 }).current, null);
-});
-test("feed status distinguishes pause, stale, disconnected, and live", () => {
-  assert.equal(
-    deriveFeedStatus({ ...snapshot, paused: true }).status,
-    "Paused",
-  );
-  assert.equal(
-    deriveFeedStatus({ ...snapshot, now: 12_001 }).status,
-    "Feed stale",
-  );
-  assert.equal(
-    deriveFeedStatus({ ...snapshot, now: 15_001 }).status,
-    "Disconnected",
-  );
-  assert.equal(
-    deriveFeedStatus({ ...snapshot, demo: false }).status,
-    "Live feed",
-  );
 });
 test("external validation rejects malformed and inverted boxes and invalid frame dimensions", () => {
   for (const box of [

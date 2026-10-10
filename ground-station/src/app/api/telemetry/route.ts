@@ -20,21 +20,27 @@ export async function GET(request: Request) {
         /* turbopackIgnore: true */
         process.env.PYTHON_EXECUTABLE || "python",
         [script, "--synthetic", "--relative-yaw"],
-        { cwd: path.dirname(script), windowsHide: true },
+        // stderr is inherited: an unread pipe would fill up and stall the bridge.
+        {
+          cwd: path.dirname(script),
+          windowsHide: true,
+          stdio: ["ignore", "pipe", "inherit"],
+        },
       );
       const lines = createInterface({ input: child.stdout });
       let closed = false;
-      const send = (event: string, data: unknown) => {
-        if (!closed)
-          controller.enqueue(
-            encoder.encode(
-              `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`,
-            ),
-          );
+      // The stream may already be cancelled by the client; enqueue/close then throw.
+      const write = (chunk: string) => {
+        if (closed) return;
+        try {
+          controller.enqueue(encoder.encode(chunk));
+        } catch {
+          stop();
+        }
       };
-      const heartbeat = setInterval(() => {
-        if (!closed) controller.enqueue(encoder.encode(": keepalive\n\n"));
-      }, 10000);
+      const send = (event: string, data: unknown) =>
+        write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+      const heartbeat = setInterval(() => write(": keepalive\n\n"), 10000);
       stop = () => {
         if (closed) return;
         closed = true;
@@ -42,7 +48,11 @@ export async function GET(request: Request) {
         lines.close();
         child.kill();
         request.signal.removeEventListener("abort", stop);
-        controller.close();
+        try {
+          controller.close();
+        } catch {
+          /* Already cancelled by the client. */
+        }
       };
       lines.on("line", (line) => {
         try {

@@ -22,7 +22,7 @@ function PersonDetails({ pin }: { pin: PinData }) {
       className="flex flex-col gap-3 bg-[var(--color-ink)]/3 px-[18px] pb-[18px]"
     >
       <div className="flex items-center justify-between">
-        <span className="text-xs text-[color:var(--color-ink)]/70">
+        <span className="text-xs text-[color:var(--color-ink)]/80">
           Coordinates
         </span>
         <span className="text-xs tabular-nums text-[color:var(--color-ink)]">
@@ -30,7 +30,7 @@ function PersonDetails({ pin }: { pin: PinData }) {
         </span>
       </div>
       <div className="flex items-center justify-between">
-        <span className="text-xs text-[color:var(--color-ink)]/70">
+        <span className="text-xs text-[color:var(--color-ink)]/80">
           Temperature
         </span>
         <span className={"text-sm tabular-nums " + temperature.textClass}>
@@ -38,19 +38,19 @@ function PersonDetails({ pin }: { pin: PinData }) {
         </span>
       </div>
       {pin.locationNote && (
-        <p className="text-xs text-[color:var(--color-ink)]/70">
+        <p className="text-xs text-[color:var(--color-ink)]/80">
           {pin.locationNote}
           {pin.capturedAt &&
             ` · ${new Date(pin.capturedAt).toLocaleTimeString()}`}
         </p>
       )}
       {pin.locationNote && pin.groundElevationM === undefined && (
-        <p className="text-xs text-[color:var(--color-ink)]/70">
+        <p className="text-xs text-[color:var(--color-ink)]/80">
           Ground elevation lookup uses the position at selection.
         </p>
       )}
       {pin.groundElevationM !== undefined ? (
-        <p className="text-xs text-[color:var(--color-ink)]/70">
+        <p className="text-xs text-[color:var(--color-ink)]/80">
           Ground elevation used: {pin.groundElevationM.toFixed(1)} m
         </p>
       ) : (
@@ -94,7 +94,7 @@ export function PersonPin({ pin, expanded, onSelect }: PersonPinProps) {
             )}
           </span>
         </div>
-        <span className="text-lg leading-none text-[color:var(--color-ink)]/70">
+        <span className="text-lg leading-none text-[color:var(--color-ink)]/80">
           {expanded ? "-" : "+"}
         </span>
       </button>

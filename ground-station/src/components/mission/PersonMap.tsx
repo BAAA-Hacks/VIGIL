@@ -69,12 +69,13 @@ export function PersonMap(props: PersonMapProps) {
       <div
         ref={container}
         className="size-full bg-[var(--color-paper)]"
+        role="region"
         aria-label="Map of detected person coordinates"
       />
       {error && (
         <p
           role="status"
-          className="absolute inset-x-2.5 top-1/2 z-[1000] bg-[var(--color-paper)] p-3 text-xs leading-relaxed text-[color:var(--color-ink)]/70"
+          className="absolute inset-x-2.5 top-1/2 z-[1000] bg-[var(--color-paper)] p-3 text-xs leading-relaxed text-[color:var(--color-ink)]/80"
         >
           Map could not load. Person coordinates remain available in the list.
         </p>

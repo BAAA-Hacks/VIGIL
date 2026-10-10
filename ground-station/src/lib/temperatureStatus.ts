@@ -13,14 +13,14 @@ export const TEMPERATURE_STATUS: Record<
 > = {
   unknown: {
     label: "Temperature status unavailable",
-    pinClass: "bg-[var(--color-ink)]/6 text-[color:var(--color-ink)]/75",
+    pinClass: "bg-[var(--color-ink)]/6 text-[color:var(--color-ink)]/80",
     markerClass:
       "border-[color:var(--color-ink)]/60 bg-[var(--color-paper)] text-[color:var(--color-ink)]",
     textClass: "text-[color:var(--color-ink)]",
   },
   normal: {
     label: "Normal",
-    pinClass: "bg-[var(--color-ink)]/6 text-[color:var(--color-ink)]/75",
+    pinClass: "bg-[var(--color-ink)]/6 text-[color:var(--color-ink)]/80",
     markerClass:
       "border-[color:var(--color-ink)]/60 bg-[var(--color-paper)] text-[color:var(--color-ink)]",
     textClass: "text-[color:var(--color-ink)]",
@@ -30,7 +30,7 @@ export const TEMPERATURE_STATUS: Record<
     pinClass:
       "border border-[color:var(--color-pink)]/35 bg-[var(--color-peach)]/25 text-[color:var(--color-ink)]",
     markerClass:
-      "border-[color:var(--color-pink)] bg-[var(--color-peach)] text-[color:var(--color-ink)]",
+      "border-[color:var(--color-pink)] bg-[color-mix(in_srgb,var(--color-peach)_80%,var(--color-paper))] text-[color:var(--color-ink)]",
     textClass: "text-[color:var(--color-ink)] font-medium",
   },
   low: {

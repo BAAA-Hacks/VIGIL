@@ -27,7 +27,7 @@ export function PinsPanel({
         {settings}
         {message && (
           <p
-            className="p-3 text-xs text-[color:var(--color-ink)]/75"
+            className="p-3 text-xs text-[color:var(--color-ink)]/80"
             role="status"
           >
             {message}
@@ -36,7 +36,7 @@ export function PinsPanel({
         {reasons?.map((reason, index) => (
           <p
             key={index}
-            className="px-3 pb-2 text-xs text-[color:var(--color-ink)]/75"
+            className="px-3 pb-2 text-xs text-[color:var(--color-ink)]/80"
           >
             {reason}
           </p>

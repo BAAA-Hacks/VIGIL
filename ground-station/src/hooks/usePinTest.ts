@@ -5,6 +5,8 @@ import {
   pinTestPixels,
   PIN_TEST_CONFIG,
 } from "../lib/pinTest";
+import { dispatchVigil } from "../lib/events";
+import { formatClock } from "../lib/droneReadings";
 
 export function usePinTest() {
   const [enabled, setEnabled] = useState(false);
@@ -27,15 +29,9 @@ export function usePinTest() {
     const tick = () => {
       try {
         const sample = createPinTestSample(Date.now(), payload);
-        window.dispatchEvent(
-          new CustomEvent("vigil:telemetry", { detail: sample.telemetry }),
-        );
-        window.dispatchEvent(
-          new CustomEvent("vigil:frame", { detail: sample.frame }),
-        );
-        window.dispatchEvent(
-          new CustomEvent("vigil:detection", { detail: sample.detection }),
-        );
+        dispatchVigil("telemetry", sample.telemetry);
+        dispatchVigil("frame", sample.frame);
+        dispatchVigil("detection", sample.detection);
         setSeconds(Math.floor((Date.now() - started) / 1000));
       } catch (err) {
         setError(err instanceof Error ? err.message : "Invalid pin-test data");
@@ -54,9 +50,7 @@ export function usePinTest() {
     enabled,
     config: enabled ? PIN_TEST_CONFIG : null,
     error,
-    flightTime: `${Math.floor(seconds / 60)
-      .toString()
-      .padStart(2, "0")}:${(seconds % 60).toString().padStart(2, "0")}`,
+    flightTime: formatClock(seconds),
     toggle: () => {
       setError("");
       setSeconds(0);

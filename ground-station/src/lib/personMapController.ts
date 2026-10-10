@@ -6,6 +6,15 @@ import { validFix } from "./geolocation";
 import { enableSmoothMapZoom } from "./smoothMapZoom";
 import { TEMPERATURE_STATUS } from "./temperatureStatus";
 
+// Safari has no requestIdleCallback.
+const idle = typeof requestIdleCallback === "function";
+const requestIdle = (task: () => void) =>
+  idle
+    ? requestIdleCallback(task, { timeout: 3000 })
+    : window.setTimeout(task, 1000);
+const cancelIdle = (id: number) =>
+  idle ? cancelIdleCallback(id) : window.clearTimeout(id);
+
 const tileUrl = (view: MapView) => {
   const service = {
     satellite: "World_Imagery",
@@ -39,7 +48,8 @@ interface PersonMarker {
 /** Owns Leaflet resources; React supplies snapshots without recreating markers. */
 export class PersonMapController {
   private readonly map: Leaflet.Map;
-  private readonly tiles: Leaflet.TileLayer;
+  private tiles: Leaflet.TileLayer;
+  private sharpenTimer = 0;
   private readonly observer: ResizeObserver;
   private readonly stopZoom: () => void;
   private readonly people = new Map<string, PersonMarker>();
@@ -67,11 +77,15 @@ export class PersonMapController {
     this.stopZoom = enableSmoothMapZoom(this.map);
     // Set the initial bounds before requesting tiles, and request only the chosen layer.
     this.update(pins, drone);
-    this.tiles = L.tileLayer(tileUrl(layer), {
-      attribution:
-        "Tiles &copy; Esri &mdash; Sources: Esri, HERE, Garmin, USGS, Intermap, INCREMENT P, NRCan, METI, Esri Japan, Esri China (Hong Kong), OpenStreetMap contributors, GIS User Community",
-      maxZoom: 19,
-    }).addTo(this.map);
+    this.tiles = L.tileLayer(tileUrl(layer), this.tileOptions(false)).addTo(
+      this.map,
+    );
+    // Standard tiles paint first; sharp tiles replace them once the browser is idle,
+    // so high-DPI screens get crisp maps without delaying the first paint.
+    if (L.Browser.retina)
+      this.tiles.once("load", () => {
+        this.sharpenTimer = requestIdle(() => this.sharpen());
+      });
     this.observer = new ResizeObserver(() => this.resize());
     this.observer.observe(host);
   }
@@ -107,9 +121,11 @@ export class PersonMapController {
       const current = entry.marker.getLatLng();
       if (current.lat !== pin.latitude || current.lng !== pin.longitude)
         entry.marker.setLatLng([pin.latitude, pin.longitude]);
-      entry.label.textContent = pin.displayLabel ?? pin.id;
+      const text = pin.displayLabel ?? pin.id;
+      entry.label.textContent = text;
       entry.label.className = `grid size-7 place-items-center rounded-full border-2 text-xs font-bold shadow-[0_1px_3px_color-mix(in_srgb,_var(--color-ink)_40%,_transparent)] [font-family:Arial,sans-serif] ${TEMPERATURE_STATUS[pin.status].markerClass}`;
-      const title = `${pin.name}: ${pin.coords} · ${TEMPERATURE_STATUS[pin.status].label}`;
+      // The accessible name starts with the visible label (WCAG 2.5.3).
+      const title = `${text} · ${pin.name}: ${pin.coords} · ${TEMPERATURE_STATUS[pin.status].label}`;
       entry.marker.getElement()?.setAttribute("title", title);
       entry.marker.getElement()?.setAttribute("aria-label", title);
       const key = JSON.stringify([pin.name, pin.coords, pin.temp, pin.status]);
@@ -134,9 +150,10 @@ export class PersonMapController {
         pin.longitude,
       ]);
       if (fixed) points.push([fixed.lat!, fixed.lon!]);
+      // A low hover sees people 15-80 m away; pins only separate near tile zoom 19.
       this.map.fitBounds(this.L.latLngBounds(points), {
-        padding: [40, 40],
-        maxZoom: 16,
+        ...this.fitPadding(),
+        maxZoom: 19,
       });
     } else if (!pins.length && fixed && !this.fittedSource) {
       this.map.setView([fixed.lat!, fixed.lon!], 16);
@@ -164,8 +181,10 @@ export class PersonMapController {
           iconAnchor: [16, 16],
         }),
         title: "Drone",
-        zIndexOffset: 1000,
+        // Below the person pins: people are the targets and must stay clickable.
+        zIndexOffset: -1000,
       }).addTo(this.map);
+      this.drone.getElement()?.setAttribute("aria-label", "D · Drone");
     }
     const current = this.drone.getLatLng();
     if (current.lat !== drone.lat || current.lng !== drone.lon)
@@ -184,23 +203,79 @@ export class PersonMapController {
     }
   }
 
+  private tileOptions(retina: boolean): Leaflet.TileLayerOptions {
+    return {
+      attribution:
+        "Tiles &copy; Esri &mdash; Sources: Esri, HERE, Garmin, USGS, Intermap, INCREMENT P, NRCan, METI, Esri Japan, Esri China (Hong Kong), OpenStreetMap contributors, GIS User Community",
+      // detectRetina requests one zoom level deeper and lowers maxZoom by one;
+      // offset both so zoom 19 stays usable.
+      detectRetina: retina,
+      maxZoom: retina ? 20 : 19,
+      maxNativeZoom: retina ? 18 : 19,
+    };
+  }
+
+  private sharpen() {
+    const sharp = this.L.tileLayer(tileUrl(this.layer), this.tileOptions(true));
+    sharp.once("load", () => {
+      this.tiles.remove();
+      this.tiles = sharp;
+    });
+    sharp.addTo(this.map);
+  }
+
+  /** Keeps fitted pins clear of the attribution and of the corner inset pane. */
+  private fitPadding() {
+    const host = this.map.getContainer();
+    const size = this.map.getSize();
+    // The attribution wraps onto several lines on phones.
+    let right = 40,
+      bottom = 72;
+    const inset = host
+      .closest("[data-viewers]")
+      ?.querySelector<HTMLElement>("[data-inset]");
+    if (inset && !inset.contains(host)) {
+      const box = inset.getBoundingClientRect();
+      const keptHeight = size.y - 40 - (box.height + 24),
+        keptWidth = size.x - 40 - (box.width + 24);
+      // Reserve whichever side costs less of the map.
+      if (keptHeight / size.y >= keptWidth / size.x) {
+        if (keptHeight >= 120) bottom = Math.max(bottom, box.height + 24);
+      } else if (keptWidth >= 120) right = box.width + 24;
+    }
+    return {
+      paddingTopLeft: [40, 40] as [number, number],
+      paddingBottomRight: [right, bottom] as [number, number],
+    };
+  }
+
   focus(pin: PinData | null, revision: number) {
     if (!pin || revision === this.focusRevision) return;
     this.focusRevision = revision;
-    this.map.setView([pin.latitude, pin.longitude], 17, {
-      animate: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
-    });
+    // Center on the person; never zoom out, which would re-stack nearby pins.
+    this.map.setView(
+      [pin.latitude, pin.longitude],
+      Math.max(17, this.map.getZoom()),
+      {
+        animate: !window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+      },
+    );
     this.people.get(pin.id)?.marker.openPopup();
   }
   setLayer(layer: MapView) {
     if (layer === this.layer) return;
     this.layer = layer;
-    this.tiles.setUrl(tileUrl(layer));
+    // A pending sharp layer reads this.layer when it is created, and replaces the
+    // current one on load; update every tile layer on the map.
+    this.map.eachLayer((item) => {
+      if (item instanceof this.L.TileLayer) item.setUrl(tileUrl(layer));
+    });
   }
   resize() {
     this.map.invalidateSize({ pan: false });
   }
   dispose() {
+    cancelIdle(this.sharpenTimer);
     this.observer.disconnect();
     this.stopZoom();
     this.map.remove();

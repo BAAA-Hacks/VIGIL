@@ -2,6 +2,12 @@ import type { VehicleTelemetry } from "../types/telemetry";
 
 const unavailable = "Unavailable";
 
+/** Whole seconds as mm:ss. */
+export function formatClock(seconds: number) {
+  const minutes = Math.floor(seconds / 60).toString();
+  return `${minutes.padStart(2, "0")}:${(seconds % 60).toString().padStart(2, "0")}`;
+}
+
 function formatNumber(value: number | null | undefined, unit: string) {
   return value == null ? unavailable : value.toFixed(1) + " " + unit;
 }

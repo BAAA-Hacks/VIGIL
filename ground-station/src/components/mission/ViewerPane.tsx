@@ -34,6 +34,7 @@ export function ViewerPane({
   return (
     <>
       <div
+        data-inset={!primary && !minimized ? "" : undefined}
         className={
           "absolute overflow-hidden " +
           placement +

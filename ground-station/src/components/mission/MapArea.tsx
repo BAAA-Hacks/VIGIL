@@ -1,7 +1,7 @@
 "use client";
 import { useState } from "react";
 import { ArrowLeftRight } from "lucide-react";
-import { ThermalImage } from "../dashboard/ThermalImage";
+import { ThermalImage } from "./ThermalImage";
 import { PersonMap } from "./PersonMap";
 import { ViewerPane } from "./ViewerPane";
 import { MapViewSelect, type MapView } from "./MapViewSelect";
@@ -28,6 +28,7 @@ export function MapArea(props: MapAreaProps) {
     <section
       className="relative isolate size-full min-h-[400px] overflow-hidden rounded-[5px] border border-[color:var(--color-ink)]/15 bg-[var(--color-paper)]"
       aria-label="Map and thermal camera"
+      data-viewers
     >
       <div className="flex h-[42px] items-center justify-between gap-3 bg-[var(--color-ink)] px-3.5 text-xs text-[color:var(--color-paper)]">
         <span>{thermalPrimary ? "Thermal camera" : "Search area"}</span>

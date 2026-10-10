@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { VehicleTelemetry } from "../../types/telemetry";
 import { validFix } from "../../lib/geolocation";
+import { dispatchVigil } from "../../lib/events";
 
 export function LocationSettings({
   telemetry,
@@ -19,6 +20,9 @@ export function LocationSettings({
   );
   const reference = useRef<{ lat: number; lon: number } | null>(null);
   const [retry, setRetry] = useState(0);
+  const lookup = useRef<AbortController | null>(null);
+  // Only unmount cancels the lookup; telemetry updates must not (see below).
+  useEffect(() => () => lookup.current?.abort(), []);
   useEffect(() => {
     if (
       !telemetry ||
@@ -30,12 +34,15 @@ export function LocationSettings({
     const lat = telemetry.lat!,
       lon = telemetry.lon!;
     reference.current = { lat, lon };
+    lookup.current?.abort();
     const controller = new AbortController();
+    lookup.current = controller;
     setMessage("Reading reference ground elevation…");
     fetch(`/api/elevation?lat=${lat}&lon=${lon}`, { signal: controller.signal })
       .then(async (response) => {
-        if (!response.ok) throw new Error("Elevation lookup failed");
-        const value = await response.json();
+        const value = await response.json().catch(() => ({}));
+        if (!response.ok)
+          throw new Error(value.error ?? "Elevation lookup failed");
         if (!Number.isFinite(value.elevation_m))
           throw new Error("No terrain coverage");
         setGround(String(value.elevation_m));
@@ -62,21 +69,17 @@ export function LocationSettings({
       setMessage("Enter valid values and confirm the conventions");
       return;
     }
-    window.dispatchEvent(
-      new CustomEvent("vigil:location-config", {
-        detail: {
-          altitudeReference: "absolute",
-          takeoffElevationM: Number(ground),
-          startingCameraHeightM: 0,
-          mountDownDeg: Number(mount),
-          frameClockOffsetMs: Number(clock),
-          nativeImageConfirmed: true,
-          attitudeConventionConfirmed: true,
-          forwardFlightConfirmed: forward,
-          ...(offset !== "" ? { headingOffsetDeg: Number(offset) } : {}),
-        },
-      }),
-    );
+    dispatchVigil("locationConfig", {
+      altitudeReference: "absolute",
+      takeoffElevationM: Number(ground),
+      startingCameraHeightM: 0,
+      mountDownDeg: Number(mount),
+      frameClockOffsetMs: Number(clock),
+      nativeImageConfirmed: true,
+      attitudeConventionConfirmed: true,
+      forwardFlightConfirmed: forward,
+      ...(offset !== "" ? { headingOffsetDeg: Number(offset) } : {}),
+    });
     setMessage("Settings applied · waiting for matched live inputs");
   }
   const input =
@@ -169,7 +172,7 @@ export function LocationSettings({
           Refresh reference ground
         </button>
       </div>
-      <p className="mt-2 text-[color:var(--color-ink)]/70" role="status">
+      <p className="mt-2 text-[color:var(--color-ink)]/80" role="status">
         {message}
       </p>
     </details>

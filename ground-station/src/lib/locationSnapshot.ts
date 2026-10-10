@@ -89,7 +89,7 @@ export function locationSnapshot({
       ? wrap(t.yaw_deg + config.headingOffsetDeg)
       : headingFor(t);
   current.detections
-    .filter((d) => d.class === "person" || d.class === "human")
+    .filter((d) => ["person", "human"].includes(d.class.toLowerCase()))
     .forEach((d, index) => {
       const result =
         d.feet_visible === false

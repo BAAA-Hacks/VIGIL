@@ -40,7 +40,7 @@ export function GroundElevation({ latitude, longitude }: GroundElevationProps) {
       aria-live="polite"
     >
       <div className="flex items-center justify-between">
-        <span className="text-[color:var(--color-ink)]/70 text-xs">
+        <span className="text-[color:var(--color-ink)]/80 text-xs">
           Ground elevation
         </span>
         <span className="text-[color:var(--color-ink)] text-xs tabular-nums">
@@ -51,13 +51,13 @@ export function GroundElevation({ latitude, longitude }: GroundElevationProps) {
               : "Looking up…"}
         </span>
       </div>
-      <p className="leading-relaxed mt-2 text-[10px] text-[color:var(--color-ink)]/70">
+      <p className="leading-relaxed mt-2 text-[10px] text-[color:var(--color-ink)]/80">
         {error ??
           "USGS 3DEP · Terrain elevation, separate from drone altitude."}
       </p>
       {error && (
         <button
-          className="flex items-center gap-1.5 border-0 bg-transparent p-1.5 text-[10px] text-[color:var(--color-ink)]/70"
+          className="flex items-center gap-1.5 border-0 bg-transparent p-1.5 text-[10px] text-[color:var(--color-ink)]/80"
           onClick={() => setAttempt((value) => value + 1)}
         >
           Retry lookup

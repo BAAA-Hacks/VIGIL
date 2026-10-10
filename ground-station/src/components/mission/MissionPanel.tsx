@@ -32,7 +32,14 @@ export function MissionPanel({
           {title}
         </h2>
         {meta && (
-          <span className="ml-auto text-[10px] text-[color:var(--color-ink)]/70">
+          <span
+            className={
+              "ml-auto text-[10px] " +
+              (darkHeader
+                ? "text-[color:var(--color-paper)]/80"
+                : "text-[color:var(--color-ink)]/80")
+            }
+          >
             {meta}
           </span>
         )}

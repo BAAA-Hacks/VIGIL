@@ -2,6 +2,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { VehicleTelemetry } from "../types/telemetry";
 import { isVehicleTelemetry } from "../lib/vehicleTelemetry";
+import { formatClock } from "../lib/droneReadings";
 const PACKET_TIMEOUT_MS = 2000;
 export function useVehicleTelemetry() {
   const [enabled, setEnabled] = useState(false);
@@ -19,6 +20,15 @@ export function useVehicleTelemetry() {
       lastPacket.current = 0;
       setStarted(0);
     };
+    // Re-render once when the latest packet goes stale, instead of polling for it.
+    let expiry: ReturnType<typeof setTimeout> | undefined;
+    const scheduleExpiry = () => {
+      clearTimeout(expiry);
+      expiry = setTimeout(() => {
+        setNow(Date.now());
+        resetClock();
+      }, PACKET_TIMEOUT_MS + 1);
+    };
     stream.addEventListener("telemetry", (event) => {
       try {
         const value: unknown = JSON.parse((event as MessageEvent).data);
@@ -34,6 +44,7 @@ export function useVehicleTelemetry() {
         setReceived(arrival);
         setNow(arrival);
         setState("Connected");
+        scheduleExpiry();
       } catch {
         setState("Invalid telemetry");
       }
@@ -47,18 +58,12 @@ export function useVehicleTelemetry() {
       setState("Disconnected");
       resetClock();
     };
-    const timer = setInterval(() => {
-      const current = Date.now();
-      setNow(current);
-      if (
-        lastPacket.current &&
-        current - lastPacket.current > PACKET_TIMEOUT_MS
-      )
-        resetClock();
-    }, 250);
+    // Flight time shows whole seconds, so a 1 s tick is enough between packets.
+    const timer = setInterval(() => setNow(Date.now()), 1000);
     return () => {
       stream.close();
       clearInterval(timer);
+      clearTimeout(expiry);
       lastPacket.current = 0;
     };
   }, [enabled]);
@@ -73,9 +78,7 @@ export function useVehicleTelemetry() {
     enabled && started && !stale && state === "Connected"
       ? Math.max(0, Math.floor((now - started) / 1000))
       : 0;
-  const flightTime = `${Math.floor(seconds / 60)
-    .toString()
-    .padStart(2, "0")}:${(seconds % 60).toString().padStart(2, "0")}`;
+  const flightTime = formatClock(seconds);
   function toggleTestData() {
     setEnabled((value) => !value);
     setData(null);

@@ -48,7 +48,12 @@ export function drawThermalScene(
         value -= 16;
       if (hasPerson && isPersonPixel(x, y)) value = 210 + random() * 40;
       value = Math.max(0, Math.min(255, value));
-      pixels.data.set([...colorize(value, palette), 255], (y * WIDTH + x) * 4);
+      const [red, green, blue] = colorize(value, palette);
+      const i = (y * WIDTH + x) * 4;
+      pixels.data[i] = red;
+      pixels.data[i + 1] = green;
+      pixels.data[i + 2] = blue;
+      pixels.data[i + 3] = 255;
     }
   }
   context.putImageData(pixels, 0, 0);

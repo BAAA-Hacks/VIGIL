@@ -34,7 +34,7 @@ export function MissionDashboard() {
     setFocusRevision((current) => current + 1);
   }
   return (
-    <div className="bg-[var(--color-paper)] text-[color:var(--color-ink)] [font-family:Arial,Helvetica,sans-serif] min-h-screen flex flex-col">
+    <div className="bg-[var(--color-paper)] text-[color:var(--color-ink)] min-h-screen flex flex-col">
       <MissionHeader />
       <h1 className="sr-only">VIGIL search and rescue ground station</h1>
       <main

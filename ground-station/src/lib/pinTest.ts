@@ -1,4 +1,4 @@
-import data from "../data/dummy-data.json" with { type: "json" };
+import data from "../data/fixture.ts";
 import { isDetectionResult, isThermalFrame } from "./validation.ts";
 import { isVehicleTelemetry } from "./vehicleTelemetry.ts";
 import type { LocationConfig } from "./geolocation.ts";
@@ -28,7 +28,7 @@ export function createPinTestSample(timestamp: number, payload: string) {
     !isThermalFrame(frame) ||
     !isDetectionResult(detection)
   )
-    throw new Error("Invalid pin-test inputs in dummy-data.json");
+    throw new Error("Invalid pin-test inputs in the demo fixture");
   return { telemetry, frame, detection };
 }
 
