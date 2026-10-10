@@ -74,10 +74,10 @@ set dynamic_gyro_notch_q = 250
 set dynamic_gyro_notch_min_hz = 60
 set dynamic_gyro_notch_mode = 3D
 set setpoint_kalman_q = 200
-set gyro_zero_x = 14
+set gyro_zero_x = 15
 set gyro_zero_y = -26
-set gyro_zero_z = -8
-set ins_gravity_cmss =  983.717
+set gyro_zero_z = -9
+set ins_gravity_cmss =  978.609
 set acc_hardware = LSM6DXX
 set acczero_x = 17
 set acczero_y = -31
@@ -91,7 +91,6 @@ set blackbox_rate_denom = 2
 set motor_pwm_protocol = STANDARD
 set failsafe_procedure = DROP
 set applied_defaults = 5
-set airmode_type = THROTTLE_THRESHOLD
 
 # mixer_profile
 mixer_profile 1
@@ -125,11 +124,8 @@ set dterm_lpf_type = PT3
 set mc_iterm_relax = RPY
 set d_boost_min =  0.800
 set d_boost_max =  1.200
-set antigravity_gain =  2.000
 set antigravity_accelerator =  5.000
 set smith_predictor_delay =  1.500
-set thr_mid = 40
-set thr_expo = 30
 set tpa_rate = 20
 set tpa_breakpoint = 1200
 set rc_expo = 75
