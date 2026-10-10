@@ -1,0 +1,228 @@
+--- a/src/main/CMakeLists.txt
++++ b/src/main/CMakeLists.txt
+@@ -278,6 +278,8 @@
+     fc/fc_init.h
+     fc/fc_tasks.c
+     fc/fc_tasks.h
++    fc/flight_recorder.c
++    fc/flight_recorder.h
+     fc/fc_hardfaults.c
+     fc/fc_msp.c
+     fc/fc_msp.h
+--- a/src/main/fc/cli.c
++++ b/src/main/fc/cli.c
+@@ -84,6 +84,7 @@
+ #include "flight/imu.h"
+ #include "flight/mixer_profile.h"
+ #include "flight/pid.h"
++#include "fc/flight_recorder.h"
+ #include "flight/servos.h"
+ 
+ #include "io/asyncfatfs/asyncfatfs.h"
+@@ -3642,6 +3643,25 @@
+     return batteryStateStrings[getBatteryState()];
+ }
+ 
++static void cliFlightLog(char *cmdline)
++{
++    UNUSED(cmdline);
++    const unsigned n = flightRecorderSampleCount();
++    int16_t s[FLIGHT_RECORDER_FIELD_COUNT];
++
++    cliPrintLinef("# flightlog: %u samples, %u ms apart", n, flightRecorderIntervalMs());
++    cliPrintLine("t_ms," FLIGHT_RECORDER_CSV_HEADER);
++    for (unsigned i = 0; i < n; i++) {
++        flightRecorderGetSample(i, s);
++        cliPrintf("%u", i * flightRecorderIntervalMs());
++        for (int f = 0; f < FLIGHT_RECORDER_FIELD_COUNT; f++) {
++            cliPrintf(",%d", s[f]);
++        }
++        cliPrintLinefeed();
++    }
++    cliPrintLine("# end");
++}
++
+ static void cliStatus(char *cmdline)
+ {
+     UNUSED(cmdline);
+@@ -4289,6 +4309,7 @@
+     CLI_COMMAND_DEF("flash_write", NULL, "<address> <message>", cliFlashWrite),
+ #endif
+ #endif
++    CLI_COMMAND_DEF("flightlog", "print the RAM flight recorder as CSV", NULL, cliFlightLog),
+ #ifdef USE_FW_AUTOLAND
+     CLI_COMMAND_DEF("fwapproach", "Fixed Wing Approach Settings", NULL, cliFwAutolandApproach),
+ #endif
+--- a/src/main/fc/fc_core.c
++++ b/src/main/fc/fc_core.c
+@@ -90,6 +90,7 @@
+ 
+ #include "flight/failsafe.h"
+ #include "flight/power_limits.h"
++#include "fc/flight_recorder.h"
+ 
+ #include "config/feature.h"
+ #include "common/vector.h"
+@@ -943,6 +944,7 @@
+     pidController(dT);
+ 
+     mixTable();
++    flightRecorderUpdate(currentTimeUs);
+ 
+     if (isMixerUsingServos()) {
+         servoMixer(dT);
+--- /dev/null
++++ b/src/main/fc/flight_recorder.h
+@@ -0,0 +1,21 @@
++/*
++ * Redstart flight recorder: keeps the last ~16 s of a flight in RAM so it can be
++ * read back over USB with the CLI command `flightlog` after landing. The board must
++ * stay powered between landing and the dump.
++ */
++
++#pragma once
++
++#include "common/time.h"
++
++void flightRecorderUpdate(timeUs_t currentTimeUs);
++unsigned flightRecorderSampleCount(void);
++unsigned flightRecorderIntervalMs(void);
++// Fills out[] with sample `index` (0 = oldest); returns false if out of range.
++bool flightRecorderGetSample(unsigned index, int16_t *out);
++
++#define FLIGHT_RECORDER_FIELD_COUNT 23
++#define FLIGHT_RECORDER_CSV_HEADER \
++    "flags,thr_stick,thr_cmd,mix_range_x1000,m1,m2,m3,m4," \
++    "gyro_roll_x10,gyro_pitch_x10,gyro_yaw_x10,roll_ddeg,pitch_ddeg," \
++    "sp_roll,sp_pitch,sp_yaw,roll_p,roll_i,roll_d,pitch_p,pitch_i,pitch_d,yaw_pid"
+--- /dev/null
++++ b/src/main/fc/flight_recorder.c
+@@ -0,0 +1,128 @@
++/*
++ * Redstart flight recorder, see flight_recorder.h.
++ *
++ * Recording starts (and the buffer is cleared) on arming, runs at 50 Hz while armed,
++ * continues for 1 s after disarm, then freezes until the next arm.
++ * flags: bit0 armed, bit1 angle mode, bit2 failsafe, bit3 mixer saturated.
++ */
++
++#include <stdbool.h>
++#include <stdint.h>
++
++#include "platform.h"
++
++#include "common/maths.h"
++#include "common/time.h"
++
++#include "fc/flight_recorder.h"
++#include "fc/rc_controls.h"
++#include "fc/runtime_config.h"
++
++#include "flight/failsafe.h"
++#include "flight/imu.h"
++#include "flight/mixer.h"
++#include "flight/pid.h"
++
++#include "rx/rx.h"
++
++#include "sensors/gyro.h"
++
++#define RECORDER_SAMPLES        800
++#define RECORDER_INTERVAL_US    20000
++#define RECORDER_TAIL_US        1000000
++
++static int16_t samples[RECORDER_SAMPLES][FLIGHT_RECORDER_FIELD_COUNT];
++static unsigned head;
++static unsigned count;
++static bool wasArmed;
++static bool frozen;
++static timeUs_t lastSampleUs;
++static timeUs_t disarmUs;
++
++static int16_t clamp16(float v)
++{
++    return (int16_t)constrainf(v, -32768.0f, 32767.0f);
++}
++
++void flightRecorderUpdate(timeUs_t currentTimeUs)
++{
++    const bool armed = ARMING_FLAG(ARMED);
++
++    if (armed && !wasArmed) {
++        head = 0;
++        count = 0;
++        frozen = false;
++    } else if (!armed && wasArmed) {
++        disarmUs = currentTimeUs;
++    }
++    wasArmed = armed;
++
++    if (frozen) {
++        return;
++    }
++    if (!armed) {
++        if (count == 0) {
++            return;
++        }
++        if (cmpTimeUs(currentTimeUs, disarmUs) > RECORDER_TAIL_US) {
++            frozen = true;
++            return;
++        }
++    }
++    if (cmpTimeUs(currentTimeUs, lastSampleUs) < RECORDER_INTERVAL_US) {
++        return;
++    }
++    lastSampleUs = currentTimeUs;
++
++    int16_t *s = samples[head];
++    s[0] = (armed ? 1 : 0) | (FLIGHT_MODE(ANGLE_MODE) ? 2 : 0) | (failsafeIsActive() ? 4 : 0) | (mixerIsOutputSaturated() ? 8 : 0);
++    s[1] = rxGetChannelValue(THROTTLE);
++    s[2] = mixerThrottleCommand;
++    s[3] = clamp16(getMotorMixRange() * 1000.0f);
++    for (int i = 0; i < 4; i++) {
++        s[4 + i] = motor[i];
++    }
++    for (int axis = 0; axis < 3; axis++) {
++        s[8 + axis] = clamp16(gyro.gyroADCf[axis] * 10.0f);
++    }
++    s[11] = attitude.values.roll;
++    s[12] = attitude.values.pitch;
++    for (int axis = 0; axis < 3; axis++) {
++        s[13 + axis] = clamp16(axisPID_Setpoint[axis]);
++    }
++    s[16] = clamp16(axisPID_P[FD_ROLL]);
++    s[17] = clamp16(axisPID_I[FD_ROLL]);
++    s[18] = clamp16(axisPID_D[FD_ROLL]);
++    s[19] = clamp16(axisPID_P[FD_PITCH]);
++    s[20] = clamp16(axisPID_I[FD_PITCH]);
++    s[21] = clamp16(axisPID_D[FD_PITCH]);
++    s[22] = axisPID[FD_YAW];
++
++    head = (head + 1) % RECORDER_SAMPLES;
++    if (count < RECORDER_SAMPLES) {
++        count++;
++    }
++}
++
++unsigned flightRecorderSampleCount(void)
++{
++    return count;
++}
++
++unsigned flightRecorderIntervalMs(void)
++{
++    return RECORDER_INTERVAL_US / 1000;
++}
++
++bool flightRecorderGetSample(unsigned index, int16_t *out)
++{
++    if (index >= count) {
++        return false;
++    }
++    const unsigned oldest = (head + RECORDER_SAMPLES - count) % RECORDER_SAMPLES;
++    const int16_t *s = samples[(oldest + index) % RECORDER_SAMPLES];
++    for (int i = 0; i < FLIGHT_RECORDER_FIELD_COUNT; i++) {
++        out[i] = s[i];
++    }
++    return true;
++}
