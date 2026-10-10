@@ -204,6 +204,35 @@ sequences within each presence class, samples without replacement inside an epoc
 sample deterministically each epoch. This is different from Ultralytics `fraction`, which selects
 a fixed subset.
 
+For hard-negative fine-tuning, mine labeled-negative training frames and request an explicit
+positive/hard-negative/ordinary-negative epoch mix:
+
+```bash
+python -m AI.scripts.mine_hard_negatives \
+  --weights AI/models/runs/thermal_mega_fold_0_resampled-2/weights/best.pt \
+  --data AI/datasets/thermal_mega_5fold_lepton/fold_0/data.yaml \
+  --confidence 0.20 \
+  --output AI/datasets/thermal_mega_5fold_lepton/fold_0/hard_negatives_conf020.json
+
+python -m AI.scripts.train \
+  --data AI/datasets/thermal_mega_5fold_lepton/fold_0/data.yaml \
+  --model AI/models/runs/thermal_mega_fold_0_resampled-2/weights/best.pt \
+  --epoch-fraction 0.10 \
+  --hard-negative-manifest AI/datasets/thermal_mega_5fold_lepton/fold_0/hard_negatives_conf020.json \
+  --positive-fraction 0.50 \
+  --hard-negative-fraction 0.25 \
+  --selection-metric presence_f1 \
+  --presence-conf 0.40
+```
+
+The remaining 25% is ordinary labeled-negative frames. Mining is restricted to `split=train`;
+validation and locked-test frames are never eligible.
+
+With `--selection-metric presence_f1`, validation logs frame-presence precision, recall, F1,
+specificity, and false-positive-frame rate at the requested confidence. `best.pt` and early
+stopping use presence F1 instead of Ultralytics box-mAP fitness. Full ordered-video temporal
+metrics remain a post-training evaluation.
+
 Optional two-stage run (5 frozen-backbone epochs, then 45 fully trainable epochs):
 
 ```bash
