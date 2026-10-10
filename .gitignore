@@ -438,6 +438,11 @@ evaluation.json
 runs/
 *.pt
 
+# Reviewed checkpoints shared through regular Git (kept below GitHub's file-size limit).
+!AI/checkpoints/
+!AI/checkpoints/thermal_mega_medium_crop_fold0_best.pt
+!AI/checkpoints/thermal_medium_range_yolo26m_best.pt
+
 # Editor settings are personal; keep the whole folder out of the repo
 .vscode/
 

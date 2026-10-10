@@ -53,6 +53,23 @@ The expected Roboflow split is 8,093 training, 489 validation, and 689 test imag
 scripts read the actual paths from `data.yaml`, so the extraction may use a slightly
 different folder layout.
 
+For the full source-video release, the importer can consume the extracted `*_IR_*` folders
+directly. Run these commands from the repository root:
+
+```bash
+python -m AI.scripts.import_wisard_raw \
+  /home/agnco/PyTorch/Files \
+  AI/datasets/wisard_full_ir_manifest
+
+python -m AI.scripts.inspect_dataset \
+  AI/datasets/wisard_full_ir_manifest/data.yaml \
+  --output AI/reports/wisard_full_ir_preflight
+```
+
+The canonical manifest references source images with symlinks, writes normalized labels into
+the workspace, and leaves the extracted download unchanged. A missing source label is accepted
+as an empty frame only when that video's `count.txt` explicitly declares zero humans.
+
 ## 1. Inspect the original dataset
 
 ```bash
@@ -65,6 +82,10 @@ channels and data types. It reports bounding-box dimensions after an effective 1
 reduction, flags boxes with a side smaller than four pixels, and saves annotated examples.
 
 Review `reports/wisard_original/inspection_report.json` before training.
+
+Before building folds from a new/full export, inspect `source_sequence_overlap.parser_audit`
+and `exact_content_duplicates`. A high singleton/unparsed-frame count indicates that filename
+grouping needs adjustment; cross-split pixel duplicates must be resolved before evaluation.
 
 The v2 export has no empty-background frames. Its original test set is also drawn from a
 video that occurs in training, so the preferred experiment is grouped cross-validation.
@@ -79,6 +100,30 @@ python scripts/build_folds.py \
   --negative-fraction 0.25 \
   --seed 26
 ```
+
+For a final experiment, choose untouched source videos before looking at model results, put one
+exact sequence name per line in `config/wisard_locked_test_sequences.txt`, and add:
+
+```bash
+  --holdout-sequences-file config/wisard_locked_test_sequences.txt
+```
+
+Those videos are excluded from every cross-validation train/validation fold and exposed through
+each fold YAML's common `test` split.
+
+The sequence list can be selected deterministically, without looking at model performance, while
+balancing image, annotation, and tiny-target counts:
+
+```bash
+python scripts/select_holdout_sequences.py \
+  /path/to/full_wisard/data.yaml \
+  config/wisard_locked_test_sequences.txt \
+  --fraction 0.05 \
+  --seed 26
+```
+
+Review and preserve both the generated text file and its adjacent JSON selection report before
+building folds.
 
 The builder combines the supplied splits but keeps every source video wholly inside one
 held-out fold. It creates one candidate background crop for approximately 25% of frames,
@@ -139,6 +184,74 @@ for fold in 0 1 2 3 4; do
 done
 ```
 
+For video-correlated or combined datasets, sample a fresh, source-balanced subset every epoch
+while still validating on the complete validation split:
+
+```bash
+python scripts/train.py \
+  --data datasets/wisard_5fold_lepton/fold_0/data.yaml \
+  --model yolo26s.pt \
+  --epochs 50 \
+  --batch 0.8 \
+  --optimizer AdamW \
+  --lr0 0.001 \
+  --epoch-fraction 0.20 \
+  --name lepton_fold_0_resampled
+```
+
+The sampler preserves the training pool's image-level positive/negative ratio, balances source
+sequences within each presence class, samples without replacement inside an epoch, and changes the
+sample deterministically each epoch. This is different from Ultralytics `fraction`, which selects
+a fixed subset.
+
+<<<<<<< Updated upstream
+For hard-negative fine-tuning, mine labeled-negative training frames and request an explicit
+positive/hard-negative/ordinary-negative epoch mix:
+
+```bash
+python -m AI.scripts.mine_hard_negatives \
+  --weights AI/models/runs/thermal_mega_fold_0_resampled-2/weights/best.pt \
+  --data AI/datasets/thermal_mega_5fold_lepton/fold_0/data.yaml \
+  --confidence 0.20 \
+  --output AI/datasets/thermal_mega_5fold_lepton/fold_0/hard_negatives_conf020.json
+
+python -m AI.scripts.train \
+  --data AI/datasets/thermal_mega_5fold_lepton/fold_0/data.yaml \
+  --model AI/models/runs/thermal_mega_fold_0_resampled-2/weights/best.pt \
+  --epoch-fraction 0.10 \
+  --hard-negative-manifest AI/datasets/thermal_mega_5fold_lepton/fold_0/hard_negatives_conf020.json \
+  --positive-fraction 0.50 \
+  --hard-negative-fraction 0.25 \
+  --selection-metric presence_f1 \
+  --presence-conf 0.40
+```
+
+The remaining 25% is ordinary labeled-negative frames. Mining is restricted to `split=train`;
+validation and locked-test frames are never eligible.
+
+With `--selection-metric presence_f1`, validation logs frame-presence precision, recall, F1,
+specificity, and false-positive-frame rate at the requested confidence. `best.pt` and early
+stopping use presence F1 instead of Ultralytics box-mAP fitness. Full ordered-video temporal
+metrics remain a post-training evaluation.
+=======
+For a closer-range experiment, add one medium-FOV crop for every positive WiSARD and POP training
+image. Crops are taken from the original-resolution sources before the 160 x 120 conversion;
+validation and locked-test images remain unchanged:
+
+```bash
+python -m AI.scripts.prepare_medium_crops \
+  AI/datasets/thermal_mega_5fold_lepton \
+  AI/datasets/wisard_full_ir_5fold \
+  /data/POP/train \
+  AI/datasets/thermal_mega_5fold_lepton_medium_crops \
+  --crop-scale 0.5
+```
+
+The crop expands when necessary to retain every labeled person in a frame, so crowded or widely
+separated scenes may receive less magnification than the nominal 2x linear scale. Crop variants
+are added only to each fold's training list.
+>>>>>>> Stashed changes
+
 Optional two-stage run (5 frozen-backbone epochs, then 45 fully trainable epochs):
 
 ```bash
@@ -165,15 +278,16 @@ with otherwise identical settings.
 ### Sequence-balanced comparison
 
 Long videos can dominate frame-level training even when folds are correctly grouped by video.
-Build deterministic training lists that retain at most 350 temporally distributed original
-frames per source sequence, retain a generated negative only when its parent frame is selected,
-and leave every validation list unchanged:
+Build deterministic training lists that retain at most 350 temporally distributed positive
+frames per source sequence, retain every generated negative/hard-negative crop, and leave every
+validation list unchanged:
 
 ```bash
 python scripts/balance_training_sequences.py \
   datasets/wisard_5fold_lepton \
-  datasets/wisard_5fold_lepton_balanced \
-  --max-originals-per-sequence 350
+  datasets/wisard_5fold_lepton_balanced_all_negatives \
+  --max-originals-per-sequence 350 \
+  --negative-policy all
 ```
 
 Run fold 0 with the same hyperparameters as the unbalanced baseline so balancing is the only
@@ -181,14 +295,15 @@ experimental variable:
 
 ```bash
 python scripts/train.py \
-  --data datasets/wisard_5fold_lepton_balanced/fold_0/data.yaml \
+  --data datasets/wisard_5fold_lepton_balanced_all_negatives/fold_0/data.yaml \
   --model ../yolo26s.pt \
   --epochs 50 \
   --imgsz 640 \
-  --batch -1 \
+  --batch 0.8 \
   --device 0 \
   --freeze 0 \
-  --name lepton_fold_0_balanced_cap350
+  --scale 0.25 \
+  --name lepton_fold_0_balanced_cap350_allneg_scale025
 ```
 
 Keep the normal per-epoch losses, precision, recall, mAP50, and mAP50-95 for direct comparison.

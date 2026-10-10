@@ -32,6 +32,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("fold_root", type=Path, help="root containing fold_*/data.yaml")
     parser.add_argument("destination", type=Path)
     parser.add_argument("--max-originals-per-sequence", type=int, default=350)
+    parser.add_argument(
+        "--negative-policy",
+        choices=("all", "linked"),
+        default="all",
+        help=(
+            "retain all generated negatives (default), or only negatives whose "
+            "parent frame survives temporal subsampling"
+        ),
+    )
     parser.add_argument("--exist-ok", action="store_true")
     return parser.parse_args()
 
@@ -56,7 +65,25 @@ def is_derived_negative(path: Path) -> bool:
     return "_negative" in path.stem.casefold()
 
 
-def balance_fold(yaml_path: Path, fold_dir: Path, limit: int) -> dict:
+def choose_negatives(
+    negatives: dict[tuple[str, int | None], list[Path]],
+    selected_keys: set[tuple[str, int | None]],
+    policy: str,
+) -> list[Path]:
+    """Apply the requested negative retention policy deterministically."""
+    keys = negatives if policy == "all" else selected_keys
+    return sorted(
+        (negative for key in keys for negative in negatives.get(key, [])),
+        key=temporal_key,
+    )
+
+
+def balance_fold(
+    yaml_path: Path,
+    fold_dir: Path,
+    limit: int,
+    negative_policy: str = "all",
+) -> dict:
     config = load_dataset_config(yaml_path)
     train_images = split_images(config, "train")
     validation_images = split_images(config, "val")
@@ -79,21 +106,12 @@ def balance_fold(yaml_path: Path, fold_dir: Path, limit: int) -> dict:
             originals[sequence].append(image)
 
     selected_originals: list[Path] = []
-    selected_negatives: list[Path] = []
+    selected_keys: set[tuple[str, int | None]] = set()
     sequence_report = {}
     for sequence, sequence_images in sorted(originals.items()):
         selected = evenly_spaced(sequence_images, limit)
-        selected_keys = {(sequence, source_frame_id(image)[1]) for image in selected}
-        kept_negatives = sorted(
-            (
-                negative
-                for key in selected_keys
-                for negative in negatives.get(key, [])
-            ),
-            key=temporal_key,
-        )
+        selected_keys.update((sequence, source_frame_id(image)[1]) for image in selected)
         selected_originals.extend(selected)
-        selected_negatives.extend(kept_negatives)
         sequence_report[sequence] = {
             "available_originals": len(sequence_images),
             "selected_originals": len(selected),
@@ -101,8 +119,16 @@ def balance_fold(yaml_path: Path, fold_dir: Path, limit: int) -> dict:
                 len(negatives.get((sequence, source_frame_id(image)[1]), []))
                 for image in sequence_images
             ),
-            "selected_negatives": len(kept_negatives),
         }
+
+    selected_negatives = choose_negatives(negatives, selected_keys, negative_policy)
+
+    selected_negative_counts: dict[str, int] = defaultdict(int)
+    for negative in selected_negatives:
+        sequence, _ = source_frame_id(negative)
+        selected_negative_counts[sequence] += 1
+    for sequence, stats in sequence_report.items():
+        stats["selected_negatives"] = selected_negative_counts[sequence]
 
     selected_train = sorted([*selected_originals, *selected_negatives])
     fold_dir.mkdir(parents=True, exist_ok=True)
@@ -120,7 +146,11 @@ def balance_fold(yaml_path: Path, fold_dir: Path, limit: int) -> dict:
         "max_originals_per_sequence": limit,
         "short_sequences_oversampled": False,
         "validation_unchanged": True,
-        "negative_policy": "retain generated crop only when its parent frame is selected",
+        "negative_policy": (
+            "retain every generated negative"
+            if negative_policy == "all"
+            else "retain generated crop only when its parent frame is selected"
+        ),
     }
     (fold_dir / "data.yaml").write_text(
         yaml.safe_dump(output_yaml, sort_keys=False), encoding="utf-8"
@@ -133,6 +163,7 @@ def balance_fold(yaml_path: Path, fold_dir: Path, limit: int) -> dict:
         "original_train_originals": sum(len(images) for images in originals.values()),
         "balanced_train_originals": len(selected_originals),
         "balanced_train_negatives": len(selected_negatives),
+        "negative_policy": negative_policy,
         "validation_images": len(validation_images),
         "sequences": sequence_report,
     }
@@ -160,12 +191,14 @@ def main() -> None:
                 yaml_path,
                 destination / yaml_path.parent.name,
                 args.max_originals_per_sequence,
+                args.negative_policy,
             )
         )
     report = {
         "source_fold_root": str(fold_root),
         "destination": str(destination),
         "max_originals_per_sequence": args.max_originals_per_sequence,
+        "negative_policy": args.negative_policy,
         "folds": reports,
     }
     write_json(destination / "balancing_report.json", report)

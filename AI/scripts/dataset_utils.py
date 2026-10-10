@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
@@ -11,6 +12,11 @@ import yaml
 
 IMAGE_SUFFIXES = {".bmp", ".jpeg", ".jpg", ".png", ".tif", ".tiff", ".webp"}
 SPLIT_KEYS = ("train", "val", "test")
+
+
+def absolute_path(path: str | Path) -> Path:
+    """Return an absolute path without dereferencing a final symlink."""
+    return Path(os.path.abspath(Path(path).expanduser()))
 
 
 @dataclass(frozen=True)
@@ -119,7 +125,7 @@ def write_resolved_dataset_yaml(config: DatasetConfig, path: str | Path) -> Path
 def _images_from_path(path: Path, config: DatasetConfig) -> list[Path]:
     if path.is_dir():
         return sorted(
-            item.resolve()
+            absolute_path(item)
             for item in path.rglob("*")
             if item.is_file() and item.suffix.lower() in IMAGE_SUFFIXES
         )
@@ -135,10 +141,10 @@ def _images_from_path(path: Path, config: DatasetConfig) -> list[Path]:
                 list_candidate = (path.parent / candidate).resolve()
                 candidate = root_candidate if root_candidate.exists() else list_candidate
             if candidate.suffix.lower() in IMAGE_SUFFIXES:
-                images.append(candidate.resolve())
+                images.append(absolute_path(candidate))
         return sorted(images)
     if path.is_file() and path.suffix.lower() in IMAGE_SUFFIXES:
-        return [path.resolve()]
+        return [absolute_path(path)]
     raise FileNotFoundError(f"Image split path does not exist or is unsupported: {path}")
 
 
@@ -167,11 +173,11 @@ def label_path_for_image(image_path: str | Path) -> Path:
 
 def source_frame_id(image_path: str | Path) -> tuple[str, int | None]:
     """Infer a source sequence/frame ID from Roboflow-exported WiSARD names."""
-    base = Path(image_path).name.split(".rf.", maxsplit=1)[0]
+    base = Path(image_path).stem.split(".rf.", maxsplit=1)[0]
     while re.match(r"^[0-9a-f]{12,16}_", base, flags=re.IGNORECASE):
         base = re.sub(r"^[0-9a-f]{12,16}_", "", base, count=1, flags=re.IGNORECASE)
     base = re.sub(r"_(?:jpg|jpeg|png)$", "", base, flags=re.IGNORECASE)
-    match = re.match(r"^(.*?)[_-](\d+)$", base)
+    match = re.match(r"^(.*?)(?:[_-]\s*|\s+)(\d+)$", base)
     return (match.group(1), int(match.group(2))) if match else (base, None)
 
 

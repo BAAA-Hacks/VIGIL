@@ -1,0 +1,38 @@
+{
+  "requested_fraction": 0.05,
+  "holdout_sequence_count": 2,
+  "selection_score": 0.00789272,
+  "search_method": "exhaustive",
+  "candidates_considered": 820,
+  "seed": 26,
+  "dataset_totals": {
+    "sequences": 41,
+    "images": 29878,
+    "annotations": 27544,
+    "tiny_annotations": 11874
+  },
+  "holdout_totals": {
+    "sequences": 2,
+    "images": 1486,
+    "annotations": 1291,
+    "tiny_annotations": 631
+  },
+  "realized_fractions": {
+    "sequences": 0.04878,
+    "images": 0.049736,
+    "annotations": 0.04687,
+    "tiny_annotations": 0.053141
+  },
+  "holdout_sequences": [
+    "200929_Karen_FLIR_IR_6__20200929_134258_IR",
+    "210924_FHL_Enterprise_IR_0408__DJI_0408.mp4"
+  ],
+  "selection_basis": [
+    "sequences",
+    "images",
+    "annotations",
+    "tiny_annotations"
+  ],
+  "dataset_yaml": "/home/agnco/PyTorch/Workspace/VIGIL/AI/datasets/wisard_full_ir_manifest/data.yaml",
+  "output": "/home/agnco/PyTorch/Workspace/VIGIL/AI/config/wisard_full_ir_locked_test.txt"
+}
