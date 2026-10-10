@@ -1,0 +1,4 @@
+.vscode/
+__pycache__/
+# INAV upstream source: fetched and patched by ./fc.sh build, never committed
+inav/
