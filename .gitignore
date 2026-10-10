@@ -438,6 +438,7 @@ evaluation.json
 runs/
 *.pt
 
-# One reviewed checkpoint shared through regular Git (kept below GitHub's file-size limit).
+# Reviewed checkpoints shared through regular Git (kept below GitHub's file-size limit).
 !AI/checkpoints/
 !AI/checkpoints/thermal_mega_medium_crop_fold0_best.pt
+!AI/checkpoints/thermal_medium_range_yolo26m_best.pt
