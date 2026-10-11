@@ -13,6 +13,7 @@ Speaks the firmware's LEP1 record protocol (one raw client, 503 when busy), so
 from __future__ import annotations
 
 import argparse
+import json
 import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -95,6 +96,9 @@ def to_tlinear(frame: np.ndarray, cold_c: float, hot_c: float) -> np.ndarray:
 def make_handler(records: list[tuple[np.ndarray, int]], args: argparse.Namespace):
     busy = threading.Lock()
     started = time.monotonic()
+    # Replay control (GET/POST /control). Paused, the current frame is re-sent with fresh frame
+    # IDs and timestamps, so the detector sees a still scene rather than a stalled camera.
+    playback = {"paused": False, "index": 0}
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -102,7 +106,38 @@ def make_handler(records: list[tuple[np.ndarray, int]], args: argparse.Namespace
         def log_message(self, format: str, *values) -> None:
             print(f"[fake-lepton] {self.address_string()} {format % values}", flush=True)
 
+        def send_json(self, body: dict, status: int = 200) -> None:
+            data = (json.dumps(body) + "\n").encode()
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(data)))
+            self.end_headers()
+            self.wfile.write(data)
+
+        def control_state(self) -> dict:
+            return {"replay": True, "paused": playback["paused"], "frame": playback["index"],
+                    "frames": len(records)}
+
+        def do_POST(self) -> None:
+            if self.path.split("?")[0] != "/control":
+                self.send_error(404, "POST /control {\"paused\": true|false}")
+                return
+            try:
+                length = min(int(self.headers.get("Content-Length", "0")), 1024)
+                request = json.loads(self.rfile.read(length) or b"{}")
+                if not isinstance(request.get("paused"), bool):
+                    raise ValueError
+            except (ValueError, json.JSONDecodeError):
+                self.send_json({"error": "expected {\"paused\": true|false}"}, 400)
+                return
+            playback["paused"] = request["paused"]
+            print(f"[fake-lepton] replay {'paused' if playback['paused'] else 'resumed'}", flush=True)
+            self.send_json(self.control_state())
+
         def do_GET(self) -> None:
+            if self.path.split("?")[0] == "/control":
+                self.send_json(self.control_state())
+                return
             if self.path.split("?")[0] == "/status":
                 body = f'{{"fake":true,"frames":{len(records)},"fps":{args.fps}}}\n'.encode()
                 self.send_response(200)
@@ -112,7 +147,7 @@ def make_handler(records: list[tuple[np.ndarray, int]], args: argparse.Namespace
                 self.wfile.write(body)
                 return
             if self.path.split("?")[0] != "/raw":
-                self.send_error(404, "Endpoints: /raw /status")
+                self.send_error(404, "Endpoints: /raw /status /control")
                 return
             if not busy.acquire(blocking=False):
                 self.send_error(503, "Too many raw clients")
@@ -129,19 +164,23 @@ def make_handler(records: list[tuple[np.ndarray, int]], args: argparse.Namespace
                 interval = 1.0 / args.fps
                 next_time = time.monotonic()
                 while True:
-                    for pixels, flags in records:
-                        frame_id += 1
-                        timestamp = int((time.monotonic() - started) * 1000) & 0xFFFFFFFF
-                        header = HEADER.pack(
-                            MAGIC, frame_id, timestamp, EXPECTED_WIDTH, EXPECTED_HEIGHT,
-                            int(pixels.min()), int(pixels.max()), flags,
-                        )
-                        self.wfile.write(header + pixels.tobytes())
-                        self.wfile.flush()
-                        next_time += interval
-                        time.sleep(max(0.0, next_time - time.monotonic()))
-                    if args.no_loop:
-                        return
+                    pixels, flags = records[playback["index"]]
+                    frame_id += 1
+                    timestamp = int((time.monotonic() - started) * 1000) & 0xFFFFFFFF
+                    header = HEADER.pack(
+                        MAGIC, frame_id, timestamp, EXPECTED_WIDTH, EXPECTED_HEIGHT,
+                        int(pixels.min()), int(pixels.max()), flags,
+                    )
+                    self.wfile.write(header + pixels.tobytes())
+                    self.wfile.flush()
+                    next_time += interval
+                    time.sleep(max(0.0, next_time - time.monotonic()))
+                    if not playback["paused"]:
+                        playback["index"] += 1
+                        if playback["index"] >= len(records):
+                            if args.no_loop:
+                                return
+                            playback["index"] = 0
             except (BrokenPipeError, ConnectionResetError):
                 pass
             finally:

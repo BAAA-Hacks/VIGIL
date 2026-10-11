@@ -5,6 +5,8 @@ interface TestDataToggleProps {
   onToggle: () => void;
   pinTestEnabled: boolean;
   onTogglePinTest: () => void;
+  /** Shown only while ./replay.sh is running. */
+  replay?: { available: boolean; paused: boolean; toggle: () => void };
 }
 export function TestDataToggle({
   enabled,
@@ -12,9 +14,21 @@ export function TestDataToggle({
   onToggle,
   pinTestEnabled,
   onTogglePinTest,
+  replay,
 }: TestDataToggleProps) {
   return (
     <div className="fixed bottom-2.5 right-3 z-[1200] flex gap-2">
+      {replay?.available && (
+        <button
+          type="button"
+          onClick={replay.toggle}
+          aria-pressed={replay.paused}
+          title="Pause or resume the recorded flight replay"
+          className="rounded-[3px] border border-[color:var(--color-ink)]/25 bg-[var(--color-paper)]/94 px-2 py-[5px] text-[10px] text-[color:var(--color-ink)]/70 hover:text-[color:var(--color-ink)]"
+        >
+          {replay.paused ? "Resume replay" : "Pause replay"}
+        </button>
+      )}
       <button
         type="button"
         onClick={onTogglePinTest}

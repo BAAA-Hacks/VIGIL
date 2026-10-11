@@ -43,12 +43,8 @@ export function DroneInfoPanel({
       ],
     },
     {
-      title: "Power & radio",
-      labels: [
-        "PCB temperature",
-        "Uplink quality / RSSI",
-        "Downlink quality / RSSI",
-      ],
+      title: "Radio",
+      labels: ["Uplink quality / RSSI", "Downlink quality / RSSI"],
     },
   ];
 

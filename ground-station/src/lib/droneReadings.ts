@@ -74,7 +74,6 @@ export function getDroneReadings(
       value: formatNumber(data?.distance_home_m, "m"),
     },
     { label: "Flight time", value: flightTime },
-    { label: "PCB temperature", value: formatNumber(data?.pcb_temp_c, "°C") },
     {
       label: "Satellites / GPS fix",
       value: data
