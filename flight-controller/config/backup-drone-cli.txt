@@ -1,5 +1,5 @@
 # version
-# INAV/REDSTART 7.1.2 Oct 10 2026 / 21:10:40 (698dc43a)
+# INAV/REDSTART 7.1.2 Oct 10 2026 / 23:24:20 (61769385)
 # GCC-10.3.1 20210824 (release)
 
 # start the command batch
@@ -47,6 +47,7 @@ blackbox -PEAKS_Y
 aux 0 0 0 1600 2100
 aux 1 1 1 900 2100
 aux 2 13 2 1625 2100
+aux 3 3 1 1300 2100
 
 # Adjustments [adjrange]
 
@@ -78,7 +79,7 @@ set setpoint_kalman_q = 200
 set gyro_zero_x = 14
 set gyro_zero_y = -26
 set gyro_zero_z = -9
-set ins_gravity_cmss =  980.244
+set ins_gravity_cmss =  981.835
 set acc_hardware = LSM6DXX
 set acczero_x = 17
 set acczero_y = -31
@@ -196,7 +197,7 @@ battery_profile 1
 
 set throttle_scale =  0.450
 set throttle_idle =  5.000
-set nav_mc_hover_thr = 1270
+set nav_mc_hover_thr = 1530
 
 # battery_profile
 battery_profile 2

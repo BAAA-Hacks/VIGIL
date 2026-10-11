@@ -1,0 +1,60 @@
+--- a/src/main/fc/flight_recorder.h
++++ b/src/main/fc/flight_recorder.h
+@@ -14,8 +14,9 @@
+ // Fills out[] with sample `index` (0 = oldest); returns false if out of range.
+ bool flightRecorderGetSample(unsigned index, int16_t *out);
+ 
+-#define FLIGHT_RECORDER_FIELD_COUNT 23
++#define FLIGHT_RECORDER_FIELD_COUNT 26
+ #define FLIGHT_RECORDER_CSV_HEADER \
+     "flags,thr_stick,thr_cmd,mix_range_x1000,m1,m2,m3,m4," \
+     "gyro_roll_x10,gyro_pitch_x10,gyro_yaw_x10,roll_ddeg,pitch_ddeg," \
+-    "sp_roll,sp_pitch,sp_yaw,roll_p,roll_i,roll_d,pitch_p,pitch_i,pitch_d,yaw_pid"
++    "sp_roll,sp_pitch,sp_yaw,roll_p,roll_i,roll_d,pitch_p,pitch_i,pitch_d,yaw_pid," \
++    "alt_est_cm,climb_est_cms,alt_baro_cm"
+--- a/src/main/fc/flight_recorder.c
++++ b/src/main/fc/flight_recorder.c
+@@ -3,7 +3,7 @@
+  *
+  * Recording starts (and the buffer is cleared) on arming, runs at 50 Hz while armed,
+  * continues for 1 s after disarm, then freezes until the next arm.
+- * flags: bit0 armed, bit1 angle mode, bit2 failsafe, bit3 mixer saturated.
++ * flags: bit0 armed, bit1 angle mode, bit2 failsafe, bit3 mixer saturated, bit4 altitude hold.
+  */
+ 
+ #include <stdbool.h>
+@@ -23,8 +23,11 @@
+ #include "flight/mixer.h"
+ #include "flight/pid.h"
+ 
++#include "navigation/navigation.h"
++
+ #include "rx/rx.h"
+ 
++#include "sensors/barometer.h"
+ #include "sensors/gyro.h"
+ 
+ #define RECORDER_SAMPLES        800
+@@ -75,7 +78,7 @@
+     lastSampleUs = currentTimeUs;
+ 
+     int16_t *s = samples[head];
+-    s[0] = (armed ? 1 : 0) | (FLIGHT_MODE(ANGLE_MODE) ? 2 : 0) | (failsafeIsActive() ? 4 : 0) | (mixerIsOutputSaturated() ? 8 : 0);
++    s[0] = (armed ? 1 : 0) | (FLIGHT_MODE(ANGLE_MODE) ? 2 : 0) | (failsafeIsActive() ? 4 : 0) | (mixerIsOutputSaturated() ? 8 : 0) | (FLIGHT_MODE(NAV_ALTHOLD_MODE) ? 16 : 0);
+     s[1] = rxGetChannelValue(THROTTLE);
+     s[2] = mixerThrottleCommand;
+     s[3] = clamp16(getMotorMixRange() * 1000.0f);
+@@ -97,6 +100,13 @@
+     s[20] = clamp16(axisPID_I[FD_PITCH]);
+     s[21] = clamp16(axisPID_D[FD_PITCH]);
+     s[22] = axisPID[FD_YAW];
++    s[23] = clamp16(getEstimatedActualPosition(Z));
++    s[24] = clamp16(getEstimatedActualVelocity(Z));
++#ifdef USE_BARO
++    s[25] = clamp16(baroGetLatestAltitude());
++#else
++    s[25] = 0;
++#endif
+ 
+     head = (head + 1) % RECORDER_SAMPLES;
+     if (count < RECORDER_SAMPLES) {
