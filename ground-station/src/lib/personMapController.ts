@@ -4,6 +4,7 @@ import type { VehicleTelemetry } from "../types/telemetry";
 import type { MapView } from "../components/mission/MapViewSelect";
 import { validFix } from "./geolocation";
 import { markerHeading } from "./droneHeading";
+import { MAGNETIC_DECLINATION_DEG } from "./locationSnapshot";
 import { enableSmoothMapZoom } from "./smoothMapZoom";
 import { MissionShapeLayer } from "./missionShapeLayer";
 import type { PathShape } from "./missionPath";
@@ -28,6 +29,38 @@ function popup(name: string, coordinates: string, detail: string) {
 /** Trail points closer than this to the previous one are skipped (GPS jitter while hovering). */
 const TRAIL_MIN_STEP_M = 1;
 const TRAIL_MAX_POINTS = 5000;
+/** Lepton 3.5 horizontal field of view, and how far out the map draws what it can see. */
+const CAMERA_HALF_FOV_DEG = 28.5;
+const CONE_RANGE_M = 30;
+/** A swept-area stamp is added after this much movement or turn, up to a cap. */
+const COVERAGE_STEP_M = 1.5;
+const COVERAGE_STEP_DEG = 8;
+const COVERAGE_MAX = 600;
+
+/** Wedge from the drone along `headingDeg` (local flat-earth offsets; fine within 30 m). */
+function conePoints(
+  lat: number,
+  lon: number,
+  headingDeg: number,
+): [number, number][] {
+  const mPerDegLat = 110_574;
+  const mPerDegLon = 111_320 * Math.cos((lat * Math.PI) / 180);
+  const points: [number, number][] = [[lat, lon]];
+  for (let step = 0; step <= 8; step++) {
+    const bearing =
+      ((headingDeg -
+        CAMERA_HALF_FOV_DEG +
+        (step * 2 * CAMERA_HALF_FOV_DEG) / 8) *
+        Math.PI) /
+      180;
+    points.push([
+      lat + (CONE_RANGE_M * Math.cos(bearing)) / mPerDegLat,
+      lon + (CONE_RANGE_M * Math.sin(bearing)) / mPerDegLon,
+    ]);
+  }
+  return points;
+}
+
 /** A drone absent this long starts a new trail when it comes back (a new flight). */
 const TRAIL_RESET_AFTER_MS = 60_000;
 
@@ -54,6 +87,10 @@ export class PersonMapController {
   private droneLastSeen = 0;
   private lastCourse: number | null = null;
   private wasArmed = false;
+  private cone: Leaflet.Polygon | null = null;
+  private coverage: Leaflet.LayerGroup | null = null;
+  private coverageStamps = 0;
+  private lastStamp: { point: [number, number]; heading: number } | null = null;
   private fittedSource = "";
   private focusRevision = -1;
   private layer: MapView;
@@ -196,6 +233,9 @@ export class PersonMapController {
     ) {
       this.trailPoints = [];
       this.lastCourse = null;
+      this.coverage?.clearLayers();
+      this.coverageStamps = 0;
+      this.lastStamp = null;
     }
     this.droneLastSeen = now;
     const point: [number, number] = [drone.lat!, drone.lon!];
@@ -246,6 +286,61 @@ export class PersonMapController {
             : "Direction of travel (GPS course)";
       }
     }
+    this.updateCone(drone, heading.deg, heading.source === "nose");
+  }
+
+  /** What the camera can see now (solid when the nose direction is known, dashed when it is
+   * inferred from GPS course), over a light shading of everything it has swept this flight. */
+  private updateCone(
+    drone: VehicleTelemetry,
+    headingDeg: number | null,
+    nose: boolean,
+  ) {
+    if (headingDeg === null) {
+      this.cone?.remove();
+      this.cone = null;
+      return;
+    }
+    // The map arrow shows the compass as reported; the camera footprint needs true north.
+    const heading =
+      nose && drone.yaw_reference === "magnetic"
+        ? headingDeg + MAGNETIC_DECLINATION_DEG
+        : headingDeg;
+    const points = conePoints(drone.lat!, drone.lon!, heading);
+    const style = {
+      color: "#1f6feb",
+      weight: 1,
+      fillColor: "#1f6feb",
+      fillOpacity: nose ? 0.18 : 0.1,
+      dashArray: nose ? undefined : "4 4",
+      interactive: false,
+    };
+    if (!this.cone) this.cone = this.L.polygon(points, style).addTo(this.map);
+    else {
+      this.cone.setLatLngs(points);
+      this.cone.setStyle(style);
+    }
+    if (!this.coverage) this.coverage = this.L.layerGroup().addTo(this.map);
+    const here: [number, number] = [drone.lat!, drone.lon!];
+    const turned = this.lastStamp
+      ? Math.abs(((heading - this.lastStamp.heading + 540) % 360) - 180)
+      : Infinity;
+    const moved = this.lastStamp
+      ? this.map.distance(this.lastStamp.point, here)
+      : Infinity;
+    if (
+      (moved >= COVERAGE_STEP_M || turned >= COVERAGE_STEP_DEG) &&
+      this.coverageStamps < COVERAGE_MAX
+    ) {
+      this.L.polygon(points, {
+        stroke: false,
+        fillColor: "#1f6feb",
+        fillOpacity: 0.05,
+        interactive: false,
+      }).addTo(this.coverage);
+      this.coverageStamps++;
+      this.lastStamp = { point: here, heading };
+    }
   }
 
   private updateDrone(drone: VehicleTelemetry | null) {
@@ -253,6 +348,8 @@ export class PersonMapController {
       this.drone?.remove();
       this.drone = null;
       this.droneArrow = null;
+      this.cone?.remove();
+      this.cone = null;
       this.droneContent = "";
       return;
     }
