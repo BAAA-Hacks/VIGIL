@@ -10,6 +10,10 @@
 #define TARGET_BOARD_IDENTIFIER "RDST"
 #define USBD_PRODUCT_STRING     "REDSTART"
 
+// Ground-telemetry branch only: firmware built with this can never arm (patch 0007; status
+// shows KILLSWITCH). Remove this line to build flyable firmware.
+#define REDSTART_GROUND_ONLY
+
 #define LED0                    PC13    // Black Pill on-board LED
 
 // Passive piezo (AST1341MCTRQ) driven directly by TIM4_CH4
@@ -50,6 +54,7 @@
 #define USE_UART1               // GPS (Adafruit Ultimate GPS)
 #define UART1_TX_PIN            PA9
 #define UART1_RX_PIN            PA10
+#define USE_GPS_PROTO_NMEA      // patches/0009: NMEA driver restored from INAV 6.1.1 (MTK3339 has no UBX)
 
 #define USE_UART2               // ExpressLRS RP1 V2 (CRSF)
 #define UART2_TX_PIN            PA2
