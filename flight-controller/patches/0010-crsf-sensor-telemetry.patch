@@ -1,0 +1,193 @@
+--- a/src/main/rx/crsf.h
++++ b/src/main/rx/crsf.h
+@@ -48,6 +48,9 @@
+     CRSF_FRAME_LINK_STATISTICS_PAYLOAD_SIZE = 10,
+     CRSF_FRAME_RC_CHANNELS_PAYLOAD_SIZE = 22, // 11 bits per channel * 16 channels = 22 bytes.
+     CRSF_FRAME_ATTITUDE_PAYLOAD_SIZE = 6,
++    CRSF_FRAME_BARO_ALTITUDE_PAYLOAD_SIZE = 3,
++    CRSF_FRAME_REDSTART_IMU_PAYLOAD_SIZE = 12,
++    CRSF_FRAME_REDSTART_MAG_PAYLOAD_SIZE = 9,
+     CRSF_FRAME_LENGTH_ADDRESS = 1, // length of ADDRESS field
+     CRSF_FRAME_LENGTH_FRAMELENGTH = 1, // length of FRAMELENGTH field
+     CRSF_FRAME_LENGTH_TYPE = 1, // length of TYPE field
+@@ -86,12 +89,16 @@
+     CRSF_FRAMETYPE_GPS = 0x02,
+     CRSF_FRAMETYPE_VARIO_SENSOR = 0x07,
+     CRSF_FRAMETYPE_BATTERY_SENSOR = 0x08,
++    CRSF_FRAMETYPE_BARO_ALTITUDE = 0x09,
+     CRSF_FRAMETYPE_LINK_STATISTICS = 0x14,
+     CRSF_FRAMETYPE_RC_CHANNELS_PACKED = 0x16,
+     CRSF_FRAMETYPE_ATTITUDE = 0x1E,
+     CRSF_FRAMETYPE_FLIGHT_MODE = 0x21,
+     // Extended Header Frames, range: 0x28 to 0x96
+     CRSF_FRAMETYPE_DEVICE_PING = 0x28,
++    // Redstart ground telemetry (extended-header frames, origin = flight controller)
++    CRSF_FRAMETYPE_REDSTART_IMU = 0x88,
++    CRSF_FRAMETYPE_REDSTART_MAG = 0x89,
+     CRSF_FRAMETYPE_DEVICE_INFO = 0x29,
+     CRSF_FRAMETYPE_PARAMETER_SETTINGS_ENTRY = 0x2B,
+     CRSF_FRAMETYPE_PARAMETER_READ = 0x2C,
+--- a/src/main/telemetry/crsf.c
++++ b/src/main/telemetry/crsf.c
+@@ -17,6 +17,7 @@
+ 
+ #include <stdbool.h>
+ #include <stdint.h>
++#include <math.h>
+ #include <string.h>
+ 
+ #include "platform.h"
+@@ -29,6 +30,7 @@
+ 
+ #include "common/axis.h"
+ #include "common/crc.h"
++#include "common/maths.h"
+ #include "common/streambuf.h"
+ #include "common/time.h"
+ #include "common/utils.h"
+@@ -55,7 +57,11 @@
+ #include "rx/crsf.h"
+ #include "rx/rx.h"
+ 
++#include "sensors/acceleration.h"
++#include "sensors/barometer.h"
+ #include "sensors/battery.h"
++#include "sensors/compass.h"
++#include "sensors/gyro.h"
+ #include "sensors/sensors.h"
+ 
+ #include "telemetry/crsf.h"
+@@ -233,6 +239,81 @@
+ }
+ 
+ /*
++0x09 Barometric altitude and vertical speed (same packing as Betaflight / EdgeTX)
++Payload:
++uint16_t    Altitude: MSB clear = decimetres + 10000 (-1000 m .. 2276.7 m); MSB set = whole metres
++int8_t      Vertical speed, log-packed: sign * ln(1 + |v| / 100 cm/s) / 0.026
++*/
++static void crsfFrameBaroAltitude(sbuf_t *dst)
++{
++    sbufWriteU8(dst, CRSF_FRAME_BARO_ALTITUDE_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_TYPE_CRC);
++    crsfSerialize8(dst, CRSF_FRAMETYPE_BARO_ALTITUDE);
++
++    const int32_t altitudeDm = lrintf(getEstimatedActualPosition(Z) / 10.0f);
++    uint16_t altitudePacked;
++    if (altitudeDm < -10000) {
++        altitudePacked = 0;
++    } else if (altitudeDm < 0x8000 - 10000) {
++        altitudePacked = altitudeDm + 10000;
++    } else {
++        altitudePacked = 0x8000 | MIN(altitudeDm / 10, 0x7FFF);
++    }
++    crsfSerialize16(dst, altitudePacked);
++
++    const float climbCms = getEstimatedActualVelocity(Z);
++    const float packed = logf(1.0f + fabsf(climbCms) / 100.0f) / 0.026f;
++    crsfSerialize8(dst, (uint8_t)(int8_t)constrainf(climbCms < 0 ? -packed : packed, -127, 127));
++}
++
++/*
++0x88 Redstart IMU (extended header: destination radio, origin flight controller)
++Payload, int16 big-endian each:
++accel x, y, z   milli-g (board frame after alignment)
++gyro x, y, z    0.1 deg/s
++*/
++static void crsfFrameRedstartImu(sbuf_t *dst)
++{
++    sbufWriteU8(dst, CRSF_FRAME_REDSTART_IMU_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_EXT_TYPE_CRC);
++    crsfSerialize8(dst, CRSF_FRAMETYPE_REDSTART_IMU);
++    crsfSerialize8(dst, CRSF_ADDRESS_RADIO_TRANSMITTER);
++    crsfSerialize8(dst, CRSF_ADDRESS_FLIGHT_CONTROLLER);
++    for (int axis = 0; axis < XYZ_AXIS_COUNT; axis++) {
++        crsfSerialize16(dst, (uint16_t)(int16_t)constrainf(acc.accADCf[axis] * 1000.0f, -32768, 32767));
++    }
++    for (int axis = 0; axis < XYZ_AXIS_COUNT; axis++) {
++        crsfSerialize16(dst, (uint16_t)(int16_t)constrainf(gyro.gyroADCf[axis] * 10.0f, -32768, 32767));
++    }
++}
++
++/*
++0x89 Redstart magnetometer (extended header)
++Payload:
++int16_t x, y, z     field, INAV's calibrated sensor counts (board frame after alignment)
++uint16_t            heading, 0.1 deg (INAV attitude yaw; magnetic when bit 0 of flags is set)
++uint8_t             flags: bit 0 = magnetometer detected and healthy
++*/
++static void crsfFrameRedstartMag(sbuf_t *dst)
++{
++    sbufWriteU8(dst, CRSF_FRAME_REDSTART_MAG_PAYLOAD_SIZE + CRSF_FRAME_LENGTH_EXT_TYPE_CRC);
++    crsfSerialize8(dst, CRSF_FRAMETYPE_REDSTART_MAG);
++    crsfSerialize8(dst, CRSF_ADDRESS_RADIO_TRANSMITTER);
++    crsfSerialize8(dst, CRSF_ADDRESS_FLIGHT_CONTROLLER);
++#ifdef USE_MAG
++    const bool healthy = sensors(SENSOR_MAG) && compassIsHealthy();
++    for (int axis = 0; axis < XYZ_AXIS_COUNT; axis++) {
++        crsfSerialize16(dst, (uint16_t)(int16_t)constrainf(mag.magADC[axis], -32768, 32767));
++    }
++#else
++    const bool healthy = false;
++    for (int axis = 0; axis < XYZ_AXIS_COUNT; axis++) {
++        crsfSerialize16(dst, 0);
++    }
++#endif
++    crsfSerialize16(dst, attitude.values.yaw);
++    crsfSerialize8(dst, healthy ? 1 : 0);
++}
++
++/*
+ 0x08 Battery sensor
+ Payload:
+ uint16_t    Voltage ( mV * 100 )
+@@ -415,6 +496,9 @@
+     CRSF_FRAME_FLIGHT_MODE_INDEX,
+     CRSF_FRAME_GPS_INDEX,
+     CRSF_FRAME_VARIO_SENSOR_INDEX,
++    CRSF_FRAME_BARO_ALTITUDE_INDEX,
++    CRSF_FRAME_REDSTART_IMU_INDEX,
++    CRSF_FRAME_REDSTART_MAG_INDEX,
+     CRSF_SCHEDULE_COUNT_MAX
+ } crsfFrameTypeIndex_e;
+ 
+@@ -482,6 +566,23 @@
+         crsfFinalize(dst);
+     }
+ #endif
++#ifdef USE_BARO
++    if (currentSchedule & BV(CRSF_FRAME_BARO_ALTITUDE_INDEX)) {
++        crsfInitializeFrame(dst);
++        crsfFrameBaroAltitude(dst);
++        crsfFinalize(dst);
++    }
++#endif
++    if (currentSchedule & BV(CRSF_FRAME_REDSTART_IMU_INDEX)) {
++        crsfInitializeFrame(dst);
++        crsfFrameRedstartImu(dst);
++        crsfFinalize(dst);
++    }
++    if (currentSchedule & BV(CRSF_FRAME_REDSTART_MAG_INDEX)) {
++        crsfInitializeFrame(dst);
++        crsfFrameRedstartMag(dst);
++        crsfFinalize(dst);
++    }
+     crsfScheduleIndex = (crsfScheduleIndex + 1) % crsfScheduleCount;
+ }
+ 
+@@ -515,6 +616,17 @@
+         crsfSchedule[index++] = BV(CRSF_FRAME_VARIO_SENSOR_INDEX);
+     }
+ #endif
++#ifdef USE_BARO
++    if (sensors(SENSOR_BARO)) {
++        crsfSchedule[index++] = BV(CRSF_FRAME_BARO_ALTITUDE_INDEX);
++    }
++#endif
++    crsfSchedule[index++] = BV(CRSF_FRAME_REDSTART_IMU_INDEX);
++#ifdef USE_MAG
++    if (sensors(SENSOR_MAG)) {
++        crsfSchedule[index++] = BV(CRSF_FRAME_REDSTART_MAG_INDEX);
++    }
++#endif
+     crsfScheduleCount = (uint8_t)index;
+ }
+ 

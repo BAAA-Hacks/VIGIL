@@ -12,10 +12,12 @@ and publishes VehicleTelemetry JSON (one object per line) for the UI.
   add  --udp 127.0.0.1:5600   to also send each JSON object as a UDP datagram
 
 Fields with no real source are null, never invented:
-  yaw_deg      null: no compass, so INAV's yaw has no north reference
-               (--relative-yaw publishes it anyway, marked yaw_reference="relative")
-  altitude_m, lat, lon, fix_valid, speed_ms, course_deg   null until the drone sends GPS frames (milestone M4)
+  yaw_deg      magnetic heading (yaw_reference="magnetic") while the drone reports a healthy
+               magnetometer; otherwise null, or with --relative-yaw INAV's yaw marked "relative"
+  altitude_m   barometric altitude frame (0x09) when present, else the GPS frame's altitude
+  lat, lon, fix_valid, speed_ms, course_deg   null until the drone sends GPS frames
   battery_v    null while the pack isn't connected to the board's voltage divider (reads < 2 V)
+  imu, mag     raw sensor extras from the ground-telemetry firmware (frames 0x88 / 0x89), else null
 """
 
 from __future__ import annotations
@@ -112,6 +114,17 @@ class TelemetryState:
         mode = self._get(crsf.FlightMode)
         link = self._get(crsf.LinkStats)
         vario = self._get(crsf.Vario)
+        baro = self._get(crsf.BaroAltitude)
+        imu = self._get(crsf.Imu)
+        mag = self._get(crsf.Mag)
+        if baro is not None:
+            altitude = round(baro.altitude_m, 1)
+        else:
+            altitude = None if gps is None else gps.altitude_m
+        if vario is not None:
+            climb = round(vario.climb_ms, 2)
+        else:
+            climb = None if baro is None else round(baro.climb_ms, 2)
 
         fix_valid = _fix_valid(gps)
         battery_present = battery is not None and battery.voltage_v >= BATTERY_PRESENT_ABOVE_V
@@ -133,7 +146,7 @@ class TelemetryState:
             # INAV sends pitch positive nose-down; the VehicleTelemetry contract is nose-up positive.
             "pitch_deg": None if attitude is None else round(-attitude.pitch_deg, 1),
             "yaw_deg": None,
-            "altitude_m": None if gps is None else gps.altitude_m,
+            "altitude_m": altitude,
             "lat": gps.lat if fix_valid else None,
             "lon": gps.lon if fix_valid else None,
             "fix_valid": fix_valid,
@@ -141,7 +154,7 @@ class TelemetryState:
             # extras (not in the shared contract, safe for the UI to ignore)
             "flight_mode": None if mode is None else mode.mode,
             "battery_pct": battery.remaining_pct if battery_present else None,  # INAV, from voltage
-            "climb_ms": None if vario is None else round(vario.climb_ms, 2),
+            "climb_ms": climb,
             "speed_ms": round(gps.groundspeed_kmh / 3.6, 1) if fix_valid else None,
             "course_deg": round(gps.heading_deg % 360.0, 1) if fix_valid else None,
             "satellites": None if gps is None else gps.satellites,
@@ -155,9 +168,21 @@ class TelemetryState:
                 "downlink_rssi_dbm": link.downlink_rssi_dbm,
             },
             "data_age_ms": None if self.last_drone_frame is None else int((now - self.last_drone_frame) * 1000),
+            "imu": None if imu is None else {
+                "accel_g": [round(v, 3) for v in imu.accel_g],
+                "gyro_dps": [round(v, 1) for v in imu.gyro_dps],
+            },
+            "mag": None if mag is None else {
+                "field_counts": list(mag.field_counts),
+                "heading_deg": round(mag.heading_deg % 360.0, 1),
+                "healthy": mag.healthy,
+            },
             "source": self.source,
         }
-        if self.relative_yaw and attitude is not None:
+        if mag is not None and mag.healthy:
+            msg["yaw_deg"] = round(mag.heading_deg % 360.0, 1)
+            msg["yaw_reference"] = "magnetic"
+        elif self.relative_yaw and attitude is not None:
             msg["yaw_deg"] = round(attitude.yaw_deg % 360.0, 1)
             msg["yaw_reference"] = "relative"
         return msg
@@ -191,7 +216,8 @@ class ReplaySource:
 
 class SyntheticSource:
     """Scripted ~110 s mission that exercises every frame the drone will eventually send
-    (attitude, battery, flight mode, GPS, vario, link stats), looping forever:
+    (attitude, battery, flight mode, GPS, vario, baro altitude, IMU, magnetometer, link stats),
+    looping forever:
 
       WAIT for GPS (satellites climb, no fix) -> OK (disarmed, fix) -> arm, ANGL climb to 10 m
       -> AH -> HOLD -> WP square (link degraded, then a 2.5 s dropout) -> RTH and land -> disarm
@@ -294,10 +320,32 @@ class SyntheticSource:
                                + (int(round(s["alt"])) + 1000).to_bytes(2, "big") + bytes([sats]))
         vario = crsf.build_frame(crsf.VARIO, int(s["climb"] * 100).to_bytes(2, "big", signed=True))
 
+        # Baro altitude (0x09): decimetres + 10000, climb log-packed like the firmware.
+        packed_climb = math.log(1.0 + abs(s["climb"]) * 100.0 / 100.0) / 0.026
+        baro = crsf.build_frame(crsf.BARO_ALTITUDE, (int(round(s["alt"] * 10)) + 10000).to_bytes(2, "big")
+                                + int(round(math.copysign(packed_climb, s["climb"]))).to_bytes(1, "big", signed=True))
+
+        # IMU (0x88): gravity seen through the current attitude plus a little vibration while armed.
+        shake = 0.02 if s["armed"] else 0.002
+        accel = (-math.sin(math.radians(pitch)) + shake * math.sin(37 * t),
+                 math.sin(math.radians(roll)) + shake * math.sin(41 * t),
+                 math.cos(math.radians(pitch)) * math.cos(math.radians(roll)))
+        gyro = (0.5 * math.cos(0.25 * t + 1.0) if s["armed"] else 0.0, 0.0, 0.0)
+        imu = crsf.build_frame(crsf.REDSTART_IMU, bytes([0xEA, 0xC8]) + b"".join(
+            int(round(v)).to_bytes(2, "big", signed=True)
+            for v in [a * 1000 for a in accel] + [g * 10 for g in gyro]))
+
+        # Magnetometer (0x89): a fixed horizontal field rotated by the heading.
+        h = math.radians(s["yaw"])
+        field = (int(400 * math.cos(h)), int(-400 * math.sin(h)), 600)
+        magf = crsf.build_frame(crsf.REDSTART_MAG, bytes([0xEA, 0xC8])
+                                + b"".join(v.to_bytes(2, "big", signed=True) for v in field)
+                                + int(round(s["yaw"] * 10) % 3600).to_bytes(2, "big") + bytes([1]))
+
         lq = 55 if self.DEGRADED[0] <= t < self.DEGRADED[1] else 100
         rssi = (-95 if lq < 70 else -45 - int(s["north"] / 4)) & 0xFF
         link = crsf.build_frame(crsf.LINK_STATISTICS, bytes([rssi, 0, lq, 10, 0, 7, 3, rssi, lq, 8]))
-        return att + bat + mode + gps + vario + link
+        return att + bat + mode + gps + vario + baro + imu + magf + link
 
 
 # --- Server-Sent Events output ----------------------------------------------

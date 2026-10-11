@@ -63,8 +63,8 @@ Battery sags under load and drains while armed (4S, from 16.6 V).
 | `armed` | INAV flight-mode string: `OK`/`!ERR`/`WAIT` = disarmed, anything else = armed | no flight-mode frame received yet |
 | `battery_v` | battery frame (pack voltage) | no battery frame yet, or below 2 V (pack not connected to the board's sense divider) |
 | `roll_deg`, `pitch_deg` | attitude frame | no attitude frame yet |
-| `yaw_deg` | **null by design**: no compass, so yaw has no north reference. `--relative-yaw` publishes it with `yaw_reference: "relative"` | always (unless flag) |
-| `altitude_m` | GPS frame (INAV's estimated altitude above home, metres, whole numbers) | before GPS is enabled (M4) |
+| `yaw_deg` | magnetic heading, 0–360°, with `yaw_reference: "magnetic"`, while the drone reports a healthy magnetometer (frame 0x89). Otherwise `--relative-yaw` publishes INAV's yaw with `yaw_reference: "relative"` | no healthy magnetometer and no `--relative-yaw` |
+| `altitude_m` | barometric-altitude frame 0x09 (INAV's estimated altitude above the boot/arming reference, 0.1 m); falls back to the GPS frame (whole metres) | neither frame received |
 | `lat`, `lon` | GPS frame | no GPS frames, or `fix_valid` is false |
 | `fix_valid` | **heuristic**: ≥ 6 satellites and a non-zero position (CRSF has no explicit fix flag) | no GPS frames |
 | `link_state` | `no_data` / `connected` / `degraded` (uplink LQ < 70) / `lost` (no drone frames for 1.5 s) | never |
@@ -75,7 +75,7 @@ Extras (not in the shared contract; the UI may ignore them):
 |---|---|---|
 | `flight_mode` | INAV mode string: `WAIT` (no GPS), `OK`, `!ERR` (disarmed); `ANGL`, `AH` (alt hold), `HOLD` (position hold), `WP` (mission), `RTH`, `!FS!` (failsafe), … | no flight-mode frame yet |
 | `battery_pct` | INAV's estimate from voltage (no current sensor) | same as `battery_v` |
-| `climb_ms` | vertical speed, m/s, up positive | no vario frame yet |
+| `climb_ms` | vertical speed, m/s, up positive (vario frame, else the baro-altitude frame) | neither frame yet |
 | `speed_ms`, `course_deg` | GPS ground speed and course over ground | no valid fix |
 | `satellites` | GPS satellite count | no GPS frames |
 | `home`, `distance_home_m` | `{lat, lon}` of the first valid fix after arming (as INAV sets home), and straight-line distance from it | not armed since the bridge started, or no fix |
@@ -83,9 +83,15 @@ Extras (not in the shared contract; the UI may ignore them):
 | `link` | `{uplink_lq, uplink_rssi_dbm, downlink_lq, downlink_rssi_dbm}` from ELRS | Pocket hasn't sent link stats yet |
 | `data_age_ms` | time since the last frame from the drone | nothing received yet |
 | `source` | `pocket` / `replay` / `synthetic` | never |
-| `yaw_reference` | `"relative"`, only present when yaw is published (`--relative-yaw`, `--synthetic`) | (absent) |
+| `yaw_reference` | `"magnetic"` (healthy magnetometer) or `"relative"` (`--relative-yaw`); only present when `yaw_deg` is | (absent) |
+| `imu` | `{accel_g: [x, y, z], gyro_dps: [x, y, z]}`: accelerometer in g and gyro in °/s, board axes after alignment (frame 0x88) | firmware without patch 0010 |
+| `mag` | `{field_counts: [x, y, z], heading_deg, healthy}`: INAV's calibrated magnetometer counts (not a physical unit), its heading, and whether the magnetometer is detected and healthy (frame 0x89) | no magnetometer detected, or firmware without patch 0010 |
 
-Values persist after a link loss; check `link_state` and `data_age_ms`. Not available from this drone at all (no sensor or not sent over CRSF): battery current and mAh used, temperature, absolute heading.
+Values persist after a link loss; check `link_state` and `data_age_ms`. Not available from this drone at all (no sensor or not sent over CRSF): battery current and mAh used, temperature.
+
+### Ground-telemetry firmware (branch `ground-telemetry`)
+
+That branch builds firmware that **can never arm** (patch 0007; status shows `KILLSWITCH`) and streams everything while sitting on the ground: attitude, flight mode, GPS (NMEA driver restored, patch 0009), barometric altitude, IMU and magnetometer (patch 0010). Frames 0x88/0x89 are custom extended CRSF frames (destination 0xEA, origin 0xC8, then the payload); 0x09 uses the standard Betaflight/EdgeTX packing, so the Pocket's own telemetry screen can show the altitude too. Every frame type is sent at about 10 Hz; with a low ELRS telemetry ratio some updates are dropped, so set the ratio to 1:2 in the ELRS Lua script if the stream looks slow.
 
 ## Pocket setup (G0)
 

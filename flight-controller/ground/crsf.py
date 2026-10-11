@@ -5,8 +5,10 @@ Frame layout: [address][length][type][payload ...][crc8]
   crc8   = CRC-8/DVB-S2 (poly 0xD5) over type + payload
 All multi-byte fields are big-endian.
 
-Payload formats follow INAV 7.1.2 src/main/telemetry/crsf.c and the ExpressLRS
-link-statistics frame.
+Payload formats follow INAV 7.1.2 src/main/telemetry/crsf.c, our firmware patch
+0010 (baro altitude 0x09 plus the Redstart IMU 0x88 and magnetometer 0x89 frames)
+and the ExpressLRS link-statistics frame. Extended frames (type >= 0x28) start
+their payload with destination and origin addresses.
 """
 
 from __future__ import annotations
@@ -20,10 +22,13 @@ from typing import Iterator, Optional, Union
 GPS = 0x02
 VARIO = 0x07
 BATTERY = 0x08
+BARO_ALTITUDE = 0x09
 LINK_STATISTICS = 0x14
 RC_CHANNELS = 0x16
 ATTITUDE = 0x1E
 FLIGHT_MODE = 0x21
+REDSTART_IMU = 0x88   # extended: dest, origin, then accel xyz (milli-g), gyro xyz (0.1 deg/s), int16 each
+REDSTART_MAG = 0x89   # extended: dest, origin, field xyz (int16 counts), heading (uint16, 0.1 deg), flags (uint8)
 
 # Addresses that can start a frame (FC, radio, receiver, TX module, broadcast/sync)
 ADDRESSES = {0x00, 0xC8, 0xEA, 0xEC, 0xEE}
@@ -110,6 +115,25 @@ class Vario:
 
 
 @dataclass
+class BaroAltitude:
+    altitude_m: float   # INAV estimated altitude above the boot/arming reference
+    climb_ms: float
+
+
+@dataclass
+class Imu:
+    accel_g: tuple[float, float, float]
+    gyro_dps: tuple[float, float, float]
+
+
+@dataclass
+class Mag:
+    field_counts: tuple[int, int, int]   # INAV calibrated sensor counts, not a physical unit
+    heading_deg: float                   # INAV attitude yaw; magnetic north when healthy
+    healthy: bool
+
+
+@dataclass
 class FlightMode:
     mode: str
 
@@ -126,7 +150,7 @@ class LinkStats:
     downlink_snr_db: int
 
 
-Decoded = Union[Battery, Attitude, Gps, Vario, FlightMode, LinkStats]
+Decoded = Union[Battery, Attitude, Gps, Vario, BaroAltitude, Imu, Mag, FlightMode, LinkStats]
 
 
 def _rssi_dbm(raw: int) -> int:
@@ -136,6 +160,17 @@ def _rssi_dbm(raw: int) -> int:
 
 def _rad10000_to_deg(value: int) -> float:
     return math.degrees(value / 10000.0)
+
+
+def _unpack_baro_altitude(packed: int) -> float:
+    """MSB clear: decimetres with a +10000 offset; MSB set: whole metres."""
+    return float(packed & 0x7FFF) if packed & 0x8000 else (packed - 10000) / 10.0
+
+
+def _unpack_climb(packed: int) -> float:
+    """Log-packed vertical speed (int8) -> m/s: sign * (exp(|p| * 0.026) - 1) * 100 cm/s."""
+    value = (math.exp(abs(packed) * 0.026) - 1.0) * 100.0 / 100.0
+    return -value if packed < 0 else value
 
 
 def decode(frame_type: int, payload: bytes) -> Optional[Decoded]:
@@ -154,6 +189,15 @@ def decode(frame_type: int, payload: bytes) -> Optional[Decoded]:
         if frame_type == VARIO and len(payload) >= 2:
             (climb,) = struct.unpack_from(">h", payload, 0)
             return Vario(climb / 100.0)
+        if frame_type == BARO_ALTITUDE and len(payload) >= 3:
+            packed, climb = struct.unpack_from(">Hb", payload, 0)
+            return BaroAltitude(_unpack_baro_altitude(packed), _unpack_climb(climb))
+        if frame_type == REDSTART_IMU and len(payload) >= 2 + 12:
+            ax, ay, az, gx, gy, gz = struct.unpack_from(">hhhhhh", payload, 2)
+            return Imu((ax / 1000.0, ay / 1000.0, az / 1000.0), (gx / 10.0, gy / 10.0, gz / 10.0))
+        if frame_type == REDSTART_MAG and len(payload) >= 2 + 9:
+            mx, my, mz, heading, flags = struct.unpack_from(">hhhHB", payload, 2)
+            return Mag((mx, my, mz), heading / 10.0, bool(flags & 1))
         if frame_type == FLIGHT_MODE:
             return FlightMode(payload.split(b"\x00", 1)[0].decode("ascii", "replace"))
         if frame_type == LINK_STATISTICS and len(payload) >= 10:

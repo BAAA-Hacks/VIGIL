@@ -38,6 +38,15 @@ def gps_payload(lat, lon, alt_m, sats, speed_kmh=0.0, heading=0.0):
             + (alt_m + 1000).to_bytes(2, "big") + bytes([sats]))
 
 
+def ext(ftype, payload):
+    """Extended frame from the flight controller to the radio (dest 0xEA, origin 0xC8)."""
+    return frame(ftype, bytes([0xEA, 0xC8]) + payload)
+
+
+def i16(*values):
+    return b"".join(int(v).to_bytes(2, "big", signed=True) for v in values)
+
+
 class CrcAndFraming(unittest.TestCase):
     def test_crc_known_value(self):
         # CRC-8/DVB-S2 check value for "123456789" is 0xBC
@@ -87,6 +96,25 @@ class Decoding(unittest.TestCase):
         self.assertAlmostEqual(g.lon, -81.2001, places=5)
         self.assertEqual((g.altitude_m, g.satellites), (35, 11))
 
+    def test_baro_altitude_packing(self):
+        b = crsf.decode(crsf.BARO_ALTITUDE, (10000 + 123).to_bytes(2, "big") + bytes([40]))
+        self.assertAlmostEqual(b.altitude_m, 12.3)
+        self.assertAlmostEqual(b.climb_ms, math.exp(40 * 0.026) - 1, places=3)   # firmware: ln(1+v/100)/0.026
+        self.assertAlmostEqual(crsf.decode(crsf.BARO_ALTITUDE, (10000 - 25).to_bytes(2, "big") + b"\xd8").altitude_m, -2.5)
+        self.assertLess(crsf.decode(crsf.BARO_ALTITUDE, (10000).to_bytes(2, "big") + b"\xd8").climb_ms, 0)
+        self.assertEqual(crsf.decode(crsf.BARO_ALTITUDE, (0x8000 | 3000).to_bytes(2, "big") + b"\x00").altitude_m, 3000)
+
+    def test_imu_and_mag_frames_skip_extended_addresses(self):
+        parser = crsf.FrameParser()
+        data = ext(crsf.REDSTART_IMU, i16(10, -20, 1000, 15, -30, 0)) \
+            + ext(crsf.REDSTART_MAG, i16(100, -200, 300) + (1234).to_bytes(2, "big") + b"\x01")
+        imu, mag = [crsf.decode(t, p) for t, p in parser.feed(data)]
+        self.assertEqual(imu.accel_g, (0.01, -0.02, 1.0))
+        self.assertEqual(imu.gyro_dps, (1.5, -3.0, 0.0))
+        self.assertEqual(mag.field_counts, (100, -200, 300))
+        self.assertAlmostEqual(mag.heading_deg, 123.4)
+        self.assertTrue(mag.healthy)
+
     def test_link_stats_uses_stronger_antenna(self):
         ls = crsf.decode(crsf.LINK_STATISTICS, bytes([70, 80, 99, 9, 0, 7, 3, 60, 100, 8]))
         self.assertEqual(ls.uplink_rssi_dbm, -70)
@@ -133,6 +161,32 @@ class VehicleTelemetryMapping(unittest.TestCase):
         snap = st.snapshot(1.0)
         self.assertAlmostEqual(snap["yaw_deg"], 45.0, places=1)
         self.assertEqual(snap["yaw_reference"], "relative")
+
+    def test_magnetic_heading_replaces_relative_yaw(self):
+        mag = lambda flags: ext(crsf.REDSTART_MAG, i16(1, 2, 3) + (2705).to_bytes(2, "big") + bytes([flags]))
+        st = TelemetryState(relative_yaw=True)
+        self.feed(st, frame(crsf.ATTITUDE, attitude_payload(0, 0, 45)) + mag(1), 1.0)
+        snap = st.snapshot(1.0)
+        self.assertAlmostEqual(snap["yaw_deg"], 270.5)
+        self.assertEqual(snap["yaw_reference"], "magnetic")
+        self.assertEqual(snap["mag"], {"field_counts": [1, 2, 3], "heading_deg": 270.5, "healthy": True})
+
+        st = TelemetryState(relative_yaw=True)   # magnetometer present but not healthy -> relative yaw
+        self.feed(st, frame(crsf.ATTITUDE, attitude_payload(0, 0, 45)) + mag(0), 1.0)
+        snap = st.snapshot(1.0)
+        self.assertEqual(snap["yaw_reference"], "relative")
+        self.assertFalse(snap["mag"]["healthy"])
+
+    def test_baro_altitude_preferred_and_imu_extra(self):
+        st = TelemetryState()
+        self.feed(st, frame(crsf.GPS, gps_payload(28.6, -81.2, 40, 3)), 1.0)
+        self.assertEqual(st.snapshot(1.0)["altitude_m"], 40)            # GPS frame only
+        self.feed(st, frame(crsf.BARO_ALTITUDE, (10000 + 15).to_bytes(2, "big") + b"\x00"), 1.0)
+        snap = st.snapshot(1.0)
+        self.assertEqual(snap["altitude_m"], 1.5)
+        self.assertIsNone(snap["imu"])
+        self.feed(st, ext(crsf.REDSTART_IMU, i16(0, 0, 1000, 0, 0, 25)), 1.0)
+        self.assertEqual(st.snapshot(1.0)["imu"], {"accel_g": [0.0, 0.0, 1.0], "gyro_dps": [0.0, 0.0, 2.5]})
 
     def test_no_gps_position_without_fix(self):
         st = TelemetryState()
@@ -208,7 +262,7 @@ class Synthetic(unittest.TestCase):
         snaps = self.run_mission()
         for key in ("armed", "battery_v", "roll_deg", "pitch_deg", "yaw_deg", "altitude_m", "lat", "lon",
                     "fix_valid", "battery_pct", "climb_ms", "speed_ms", "course_deg", "satellites",
-                    "home", "distance_home_m", "armed_time_s", "link"):
+                    "home", "distance_home_m", "armed_time_s", "link", "imu", "mag"):
             self.assertTrue(any(s[key] not in (None, 0, False) for s in snaps), key)
         self.assertEqual({s["link_state"] for s in snaps}, {"connected", "degraded", "lost"})
         modes = [s["flight_mode"] for s in snaps]
