@@ -18,4 +18,4 @@ curl -s -o /dev/null "$RELAY_URL/health" ||
   echo "[drone.sh] relay not running at $RELAY_URL; start ./web.sh (detections are still recorded)" >&2
 
 cd "$ROOT"
-exec env PYTHONUNBUFFERED=1 "$PYTHON" -m AI.scripts.lepton_live --socket-url "$RELAY_URL" "$@"
+exec env PYTHONUNBUFFERED=1 YOLO_OFFLINE=1 "$PYTHON" -m AI.scripts.lepton_live --socket-url "$RELAY_URL" "$@"

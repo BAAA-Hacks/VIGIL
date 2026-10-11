@@ -28,6 +28,7 @@ stop() {
 }
 trap stop INT TERM EXIT
 
+export NEXT_TELEMETRY_DISABLED=1  # no internet calls from Next.js
 export THERMAL_RELAY_PORT="${THERMAL_RELAY_PORT:-5000}"
 start relay "$ROOT/ground-station" npm run --silent thermal:relay
 [ "${START_WEB:-1}" = 0 ] || start web "$ROOT/ground-station" npm run --silent dev

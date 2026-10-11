@@ -21,6 +21,9 @@ Lepton 3.5 -> XIAO ESP32-S3 (Wi-Fi AP "Lepton-Camera", flir-lepton/) -> AI/scrip
 
 - Run from the repo root in two terminals: `./web.sh` (relay + website) and `./drone.sh` (detector;
   options pass through to `python -m AI.scripts.lepton_live`). Ctrl+C stops each.
+  Demo without hardware: `./replay.sh` (with `./web.sh` running) replays the airborne part of
+  session 20261011_013730 through the real detector; `./replay.sh full` or `./replay.sh <session> [start end]`.
+  Everything runs offline; UCF map tiles are pre-saved in `ground-station/.vigil-offline/` (not in git).
   Frames are rotated 180° by default (camera mounted upside down on the drone); `--flip none` for an upright camera. Every session is
   recorded to `AI/recordings/session_*` (raw.lep, frames, detections.jsonl, annotated.mp4).
 - Models, both in `AI/checkpoints/` and both used by default:

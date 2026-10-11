@@ -49,11 +49,14 @@ export function LocationSettings({
           `Reference ground at ${lat.toFixed(5)}, ${lon.toFixed(5)} · USGS`,
         );
       })
-      .catch((error) => {
-        if (!controller.signal.aborted)
-          setMessage(
-            error instanceof Error ? error.message : "Elevation unavailable",
-          );
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        // Offline: altitude is relative to take-off, so on flat ground any constant reference
+        // gives the same estimate. 0 m keeps Apply usable without the elevation service.
+        setGround((value) => value || "0");
+        setMessage(
+          "Elevation offline · using 0 m reference ground (flat-ground estimate)",
+        );
       });
     // The first valid position is fixed for this session, rather than queried every packet.
     // Do not abort on subsequent telemetry updates: that would discard the one-shot lookup.

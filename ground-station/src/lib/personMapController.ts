@@ -24,6 +24,12 @@ function popup(name: string, coordinates: string, detail: string) {
   return content;
 }
 
+/** Trail points closer than this to the previous one are skipped (GPS jitter while hovering). */
+const TRAIL_MIN_STEP_M = 1;
+const TRAIL_MAX_POINTS = 5000;
+/** A drone absent this long starts a new trail when it comes back (a new flight). */
+const TRAIL_RESET_AFTER_MS = 60_000;
+
 interface PersonMarker {
   marker: Leaflet.Marker;
   label: HTMLSpanElement;
@@ -39,7 +45,12 @@ export class PersonMapController {
   private readonly stopZoom: () => void;
   private readonly people = new Map<string, PersonMarker>();
   private drone: Leaflet.Marker | null = null;
+  private droneArrow: HTMLSpanElement | null = null;
   private droneContent = "";
+  private trail: Leaflet.Polyline | null = null;
+  private trailPoints: [number, number][] = [];
+  private home: Leaflet.Marker | null = null;
+  private droneLastSeen = 0;
   private fittedSource = "";
   private focusRevision = -1;
   private layer: MapView;
@@ -160,18 +171,81 @@ export class PersonMapController {
     }
   }
 
+  /** Flight trail, home point and travel direction; the trail outlives brief link dropouts. */
+  private updateTrack(drone: VehicleTelemetry) {
+    const now = Date.now();
+    if (this.droneLastSeen && now - this.droneLastSeen > TRAIL_RESET_AFTER_MS)
+      this.trailPoints = [];
+    this.droneLastSeen = now;
+    const point: [number, number] = [drone.lat!, drone.lon!];
+    const last = this.trailPoints.at(-1);
+    if (!last || this.map.distance(last, point) >= TRAIL_MIN_STEP_M) {
+      this.trailPoints.push(point);
+      if (this.trailPoints.length > TRAIL_MAX_POINTS) this.trailPoints.shift();
+    }
+    if (!this.trail)
+      this.trail = this.L.polyline([], {
+        color: "#1f6feb",
+        weight: 3,
+        opacity: 0.8,
+        dashArray: "6 6",
+        interactive: false,
+      }).addTo(this.map);
+    this.trail.setLatLngs(this.trailPoints);
+    const home = drone.home;
+    if (home && Number.isFinite(home.lat) && Number.isFinite(home.lon)) {
+      if (!this.home) {
+        const label = document.createElement("span");
+        label.className =
+          "grid size-6 place-items-center rounded-full border-2 border-[color:var(--color-ink)] bg-[var(--color-paper)] text-[10px] font-bold text-[color:var(--color-ink)]";
+        label.textContent = "H";
+        this.home = this.L.marker([home.lat, home.lon], {
+          icon: this.L.divIcon({
+            html: label,
+            className: "drone-home-icon",
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+          }),
+          title: "Home (take-off point)",
+          zIndexOffset: 900,
+        }).addTo(this.map);
+      } else this.home.setLatLng([home.lat, home.lon]);
+    }
+    // GPS course is north-referenced; INAV yaw is not (no compass), so only show it when moving.
+    if (this.droneArrow) {
+      const moving =
+        drone.course_deg !== undefined &&
+        drone.course_deg !== null &&
+        (drone.speed_ms ?? 0) >= 0.5;
+      this.droneArrow.hidden = !moving;
+      if (moving)
+        this.droneArrow.style.transform = `rotate(${drone.course_deg}deg)`;
+    }
+  }
+
   private updateDrone(drone: VehicleTelemetry | null) {
     if (!drone) {
       this.drone?.remove();
       this.drone = null;
+      this.droneArrow = null;
       this.droneContent = "";
       return;
     }
+    this.updateTrack(drone);
     if (!this.drone) {
       const label = document.createElement("span");
       label.className =
-        "grid size-8 place-items-center rounded-[4px] border-2 border-[color:var(--color-ink)] bg-[var(--color-blue)] text-xs font-bold text-[color:var(--color-ink)]";
+        "relative grid size-8 place-items-center rounded-[4px] border-2 border-[color:var(--color-ink)] bg-[var(--color-blue)] text-xs font-bold text-[color:var(--color-ink)]";
       label.textContent = "D";
+      // Direction-of-travel pointer, rotated about the marker centre.
+      const arrow = document.createElement("span");
+      arrow.className =
+        "pointer-events-none absolute inset-[-14px] [transform-origin:center]";
+      arrow.innerHTML =
+        '<span class="absolute left-1/2 top-0 -translate-x-1/2 border-x-[6px] border-b-[10px] border-x-transparent border-b-[color:var(--color-ink)]"></span>';
+      arrow.hidden = true;
+      label.append(arrow);
+      this.droneArrow = arrow;
       this.drone = this.L.marker([drone.lat!, drone.lon!], {
         icon: this.L.divIcon({
           html: label,
@@ -187,13 +261,21 @@ export class PersonMapController {
     if (current.lat !== drone.lat || current.lng !== drone.lon)
       this.drone.setLatLng([drone.lat!, drone.lon!]);
     const coordinates = `${drone.lat!.toFixed(6)}, ${drone.lon!.toFixed(6)}`;
-    const altitude =
+    const details = [
       drone.altitude_m === null
         ? "Altitude unavailable"
-        : `${drone.altitude_m.toFixed(1)} m above home`;
-    const key = `${coordinates}|${altitude}`;
+        : `${drone.altitude_m.toFixed(1)} m above home`,
+      ...(drone.speed_ms !== undefined && drone.speed_ms !== null
+        ? [`${drone.speed_ms.toFixed(1)} m/s`]
+        : []),
+      ...(drone.distance_home_m !== undefined && drone.distance_home_m !== null
+        ? [`${Math.round(drone.distance_home_m)} m from home`]
+        : []),
+      ...(drone.satellites !== null ? [`${drone.satellites} satellites`] : []),
+    ].join(" · ");
+    const key = `${coordinates}|${details}`;
     if (key !== this.droneContent) {
-      const content = popup("Drone", coordinates, altitude);
+      const content = popup("Drone", coordinates, details);
       if (this.drone.getPopup()) this.drone.setPopupContent(content);
       else this.drone.bindPopup(content);
       this.droneContent = key;

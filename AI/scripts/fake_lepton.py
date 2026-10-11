@@ -41,6 +41,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--cold-c", type=float, default=10.0, help="Temperature mapped to black")
     parser.add_argument("--hot-c", type=float, default=40.0, help="Temperature mapped to white")
     parser.add_argument("--no-loop", action="store_true", help="Close the stream after the last frame")
+    parser.add_argument("--start", type=int, default=0, help="First frame to serve (index into the source)")
+    parser.add_argument("--end", type=int, default=None, help="Stop before this frame index (default: the end)")
     return parser.parse_args()
 
 
@@ -156,6 +158,9 @@ def main() -> None:
         records = load_recording(args.source.expanduser())
     else:
         records = [(to_tlinear(frame, args.cold_c, args.hot_c), TLINEAR_FLAG) for frame in load_frames(args.source)]
+    records = records[args.start:args.end]
+    if not records:
+        raise SystemExit("--start/--end select no frames")
     server = ThreadingHTTPServer((args.host, args.port), make_handler(records, args))
     print(f"Fake Lepton serving {len(records)} frames at {args.fps} fps on http://{args.host}:{args.port}/raw", flush=True)
     try:
