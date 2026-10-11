@@ -55,3 +55,33 @@ test("slot numbers are reserved on first request", () => {
   assert.equal(memory.numberFor("b"), 2);
   assert.equal(memory.numberFor("a"), 1);
 });
+
+const withPhoto = (id: string, capturedAt: number, conf: number): PinData => ({
+  ...pin(id, capturedAt, capturedAt),
+  review: {
+    frame: {
+      frame_id: `f${capturedAt}`,
+      timestamp_ms: capturedAt,
+      width: 160,
+      height: 120,
+      pixel_format: "encoded-image",
+    },
+    detection: {
+      class: "person",
+      confidence: conf,
+      bbox_xyxy_norm: [0.1, 0.1, 0.2, 0.5],
+    },
+  },
+});
+const photoOf = (pins: PinData[]) => pins[0].review?.frame.frame_id;
+
+test("the photo is the latest clear one, while the position stays live", () => {
+  const memory = new PersonMemory();
+  memory.update([withPhoto("1", 1, 0.5)], 1);
+  assert.equal(photoOf(memory.update([withPhoto("1", 2, 0.4)], 2)), "f1");
+  assert.equal(photoOf(memory.update([withPhoto("1", 3, 0.8)], 3)), "f3");
+  const pins = memory.update([withPhoto("1", 4, 0.55)], 4);
+  assert.equal(photoOf(pins), "f3");
+  assert.equal(pins[0].latitude, 4);
+  assert.equal(photoOf(memory.update([withPhoto("1", 5, 0.75)], 5)), "f5");
+});

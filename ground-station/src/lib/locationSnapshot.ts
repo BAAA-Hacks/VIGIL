@@ -124,7 +124,8 @@ export function locationSnapshot({
     latest !== undefined &&
     now - telemetryReceived <= LOCATION_STALE_MS &&
     validFix(latest);
-  if (fixedLocation && !testing && !liveFix) {
+  // Fixed location until projection is possible: no GPS fix, or Location settings not applied.
+  if (fixedLocation && !testing && (!liveFix || !config)) {
     if (!frame || !current)
       return { ...base, message: "Waiting for matching frame and detections" };
     current.detections
@@ -152,7 +153,11 @@ export function locationSnapshot({
     return {
       ...base,
       message: pins.length
-        ? `Fixed location · ${fixedLocation.label}`
+        ? `Fixed location · ${fixedLocation.label}${
+            liveFix
+              ? " · apply Location settings to place people from the drone"
+              : ""
+          }`
         : "No people detected",
     };
   }

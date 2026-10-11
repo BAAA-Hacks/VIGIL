@@ -46,8 +46,8 @@ function PersonDetails({
           <figcaption className="space-y-1 px-2 py-2 text-[10px] leading-relaxed text-[color:var(--color-ink)]/80">
             <p>
               {pin.inView === false
-                ? "Not in view · last capture of this person"
-                : "Latest capture · highlighted person"}
+                ? "Not in view · best recent capture of this person"
+                : "Best recent capture · highlighted person"}
             </p>
             <p>
               {new Date(pin.review.frame.timestamp_ms).toLocaleTimeString()} ·{" "}

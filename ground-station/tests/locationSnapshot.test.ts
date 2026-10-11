@@ -194,3 +194,13 @@ test("fixed-location pins carry their own frame and box, one pin per person", ()
     );
   });
 });
+
+test("with a GPS fix but no Location settings, people stay at the fixed location", () => {
+  const input = inputs();
+  input.testing = false;
+  input.config = null;
+  input.fixedLocation = UCF_BUSINESS_ADMINISTRATION;
+  const result = locationSnapshot(input);
+  assert.equal(result.pins.length, 10);
+  assert.match(result.message, /apply Location settings/);
+});

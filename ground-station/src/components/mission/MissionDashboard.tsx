@@ -5,7 +5,7 @@ import { TestDataToggle } from "./TestDataToggle";
 import { MissionHeader } from "./MissionHeader";
 import { MapArea } from "./MapArea";
 import { DroneInfoPanel } from "./DroneInfoPanel";
-import { PinsPanel } from "./PinsPanel";
+import { PinsPanel, type TemperatureFilter } from "./PinsPanel";
 import { useVehicleTelemetry } from "../../hooks/useVehicleTelemetry";
 import { usePinTest } from "../../hooks/usePinTest";
 import { useReplayControl } from "../../hooks/useReplayControl";
@@ -25,6 +25,8 @@ export function MissionDashboard() {
   const thermal = useThermalFeed(!pinTest.enabled);
   const [manualPins, setManualPins] = useState<PinData[]>([]);
   const [deletedIds, setDeletedIds] = useState<Set<string>>(() => new Set());
+  const [temperatureFilter, setTemperatureFilter] =
+    useState<TemperatureFilter>("all");
   const manualNumber = useRef(0);
   const pins = [
     ...(locations.active ? locations.pins : MOCK_PINS),
@@ -51,6 +53,7 @@ export function MissionDashboard() {
       status: "unknown",
     };
     setManualPins((items) => [...items, pin]);
+    setTemperatureFilter("all");
     setExpandedId(pin.id);
     try {
       const response = await fetch(
@@ -93,6 +96,7 @@ export function MissionDashboard() {
     setFocusRevision((current) => current + 1);
   }
   function selectMapPerson(pin: PinData) {
+    setTemperatureFilter("all");
     setExpandedId(pin.id);
     setFocusedPin(pin);
     setFocusRevision((current) => current + 1);
@@ -131,6 +135,8 @@ export function MissionDashboard() {
             message={pinTest.error || locations.message || thermal.message}
             reasons={locations.reasons}
             pins={pins}
+            temperatureFilter={temperatureFilter}
+            onTemperatureFilterChange={setTemperatureFilter}
             expandedId={expandedId}
             onSelect={selectPerson}
             onDelete={deletePerson}
