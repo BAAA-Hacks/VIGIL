@@ -12,7 +12,6 @@ export function LocationSettings({
   const [ground, setGround] = useState("");
   const [mount, setMount] = useState("20");
   const [offset, setOffset] = useState("");
-  const [clock, setClock] = useState("0");
   const [confirmed, setConfirmed] = useState(false);
   const [forward, setForward] = useState(false);
   const [message, setMessage] = useState(
@@ -63,7 +62,7 @@ export function LocationSettings({
     if (
       !confirmed ||
       !ground ||
-      ![Number(ground), Number(mount), Number(clock)].every(Number.isFinite) ||
+      ![Number(ground), Number(mount)].every(Number.isFinite) ||
       (offset !== "" && !Number.isFinite(Number(offset)))
     ) {
       setMessage("Enter valid values and confirm the conventions");
@@ -74,7 +73,6 @@ export function LocationSettings({
       takeoffElevationM: Number(ground),
       startingCameraHeightM: 0,
       mountDownDeg: Number(mount),
-      frameClockOffsetMs: Number(clock),
       nativeImageConfirmed: true,
       attitudeConventionConfirmed: true,
       forwardFlightConfirmed: forward,
@@ -121,15 +119,6 @@ export function LocationSettings({
             onChange={(e) => setOffset(e.target.value)}
           />
         </label>
-        <label>
-          Frame clock offset (ms)
-          <input
-            className={input}
-            type="number"
-            value={clock}
-            onChange={(e) => setClock(e.target.value)}
-          />
-        </label>
       </div>
       <p className="mt-2 leading-relaxed">
         Altitude is above sea level. Reference ground is held constant for the
@@ -142,7 +131,7 @@ export function LocationSettings({
           checked={confirmed}
           onChange={(e) => setConfirmed(e.target.checked)}
         />
-        Native 160 × 120 image, synchronized clocks, pitch nose-up and roll
+        Native 160 × 120 image, pitch nose-up and roll
         right-wing-down confirmed.
       </label>
       <label className="mt-2 flex items-start gap-2">

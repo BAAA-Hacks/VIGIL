@@ -3,7 +3,7 @@ import type { DetectionResult, ThermalFrame } from "../types/vigil.ts";
 import type { PinData } from "../types/mission.ts";
 import {
   projectPerson,
-  telemetryAt,
+  validFix,
   wrap,
   type LocationConfig,
   type Terrain,
@@ -23,7 +23,7 @@ export interface LocationSnapshotInput {
   testing: boolean;
   headingFor: (telemetry: VehicleTelemetry) => number | null;
 }
-/** Pure capture-time projection; transport and React state are kept outside it. */
+/** Pure projection using the newest telemetry; transport and React state are kept outside it. */
 export function locationSnapshot({
   active,
   frames,
@@ -77,13 +77,12 @@ export function locationSnapshot({
     };
   if (now - telemetryReceived > LOCATION_STALE_MS)
     return { ...base, message: "Telemetry stale · locations withheld" };
-  const capture = frame.timestamp_ms + config.frameClockOffsetMs;
-  const t = telemetryAt(history, capture);
-  if (
-    !t ||
-    Math.abs((history.at(-1)?.timestamp_ms ?? 0) - capture) > LOCATION_STALE_MS
-  )
-    return { ...base, message: "Waiting for synchronized GPS and attitude" };
+  // No camera/telemetry clock sync: pair each frame with the newest telemetry. Both feeds
+  // are fresh (checked above), so the pose is at most LOCATION_STALE_MS old.
+  const capture = frame.timestamp_ms;
+  const t = history.at(-1) ?? null;
+  if (!t || !validFix(t))
+    return { ...base, message: "Waiting for GPS fix" };
   const heading =
     t.yaw_deg !== null && config.headingOffsetDeg !== undefined
       ? wrap(t.yaw_deg + config.headingOffsetDeg)

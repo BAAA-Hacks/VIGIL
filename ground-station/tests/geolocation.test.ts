@@ -14,7 +14,6 @@ const config: LocationConfig = {
   takeoffElevationM: 500,
   startingCameraHeightM: 0,
   mountDownDeg: 20,
-  frameClockOffsetMs: 0,
   nativeImageConfirmed: true,
   attitudeConventionConfirmed: true,
   forwardFlightConfirmed: true,

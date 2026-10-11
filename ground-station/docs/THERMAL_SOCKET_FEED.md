@@ -26,7 +26,7 @@ The relay binds to `127.0.0.1:5000` by default, accepts the dashboard origins `h
 - Center temperatures are nominal camera readings, not calibrated core/body temperatures. This adapter does not assign medical high/low categories.
 - The existing two-second stale-feed rule withholds locations after camera packets stop. Reconnect clears pending pairs. No frames are persisted by the relay.
 
-Map pins still require live drone telemetry, synchronized clocks, a valid north heading, and the location settings/ground elevation. `capture_timestamp_ms` is arrival time on the ground computer, rather than sensor exposure time; camera/network latency remains a projection uncertainty. The adapter does not change camera geometry or the shared 5.1-second elevation request limit.
+Map pins still require live drone telemetry with a GPS fix, a valid north heading, and the location settings/ground elevation. `capture_timestamp_ms` is arrival time on the ground computer, rather than sensor exposure time; camera/network latency remains a projection uncertainty. The adapter does not change camera geometry or the shared 5.1-second elevation request limit.
 
 ## Configuration
 
