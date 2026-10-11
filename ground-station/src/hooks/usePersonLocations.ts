@@ -10,6 +10,7 @@ import {
   type Terrain,
 } from "../lib/geolocation";
 
+import { PersonMemory } from "../lib/personMemory";
 import { gridTerrain, type TerrainGrid } from "../lib/terrainGrid";
 import { isLocationConfig } from "../lib/locationConfig";
 import {
@@ -40,6 +41,21 @@ function fixedPersonLocation(): FixedLocation | null {
 }
 const FIXED_PERSON_LOCATION = fixedPersonLocation();
 
+/**
+ * Location settings for ./replay.sh's reconstructed flight, so pins work without Apply. The
+ * camera's effective down angle (~12°) is read from the horizon in that footage; altitude is
+ * take-off relative over flat ground, and the track's yaw is a true heading.
+ */
+const REPLAY_TRACK_CONFIG: LocationConfig = {
+  altitudeReference: "takeoff",
+  takeoffElevationM: 0,
+  startingCameraHeightM: 0,
+  mountDownDeg: 12,
+  nativeImageConfirmed: true,
+  attitudeConventionConfirmed: true,
+  forwardFlightConfirmed: false,
+};
+
 /** Live transport adapter. Capture timestamps and session conventions are explicit inputs. */
 export function usePersonLocations(
   latest: VehicleTelemetry | null,
@@ -49,13 +65,17 @@ export function usePersonLocations(
   const [frames, setFrames] = useState<ThermalFrame[]>([]);
   const [detection, setDetection] = useState<DetectionResult | null>(null);
   const [config, setConfig] = useState<LocationConfig | null>(null);
-  const projectionConfig = testConfig ?? config;
+  const projectionConfig =
+    testConfig ??
+    config ??
+    (latest?.source === "replay-track" ? REPLAY_TRACK_CONFIG : null);
   const [terrain, setTerrain] = useState<Terrain | undefined>();
   const [active, setActive] = useState(false);
   const [now, setNow] = useState(0);
   const received = useRef(0);
   const telemetryReceived = useRef(0);
   const calibrator = useRef(new CourseHeading());
+  const memory = useRef(new PersonMemory());
   useEffect(() => {
     let disposed = false;
     fetch("/api/offline-terrain")
@@ -176,6 +196,7 @@ export function usePersonLocations(
   }, [projectionConfig]);
   useEffect(() => {
     calibrator.current.reset();
+    memory.current.clear();
     lastTime.current = 0;
     setHistory([]);
     setFrames([]);
@@ -187,31 +208,38 @@ export function usePersonLocations(
   useEffect(() => {
     if (latest) ingestRef.current(latest);
   }, [latest]);
-  return useMemo(
-    () =>
-      locationSnapshot({
-        active,
-        frames,
-        detection,
-        config: projectionConfig,
-        history,
-        now,
-        frameReceived: received.current,
-        telemetryReceived: telemetryReceived.current,
-        fixedLocation: FIXED_PERSON_LOCATION,
-        terrain,
-        testing: testConfig !== null,
-        headingFor: (telemetry) => calibrator.current.heading(telemetry),
-      }),
-    [
+  return useMemo(() => {
+    const snapshot = locationSnapshot({
       active,
       frames,
       detection,
-      projectionConfig,
+      config: projectionConfig,
       history,
       now,
+      frameReceived: received.current,
+      telemetryReceived: telemetryReceived.current,
+      fixedLocation: FIXED_PERSON_LOCATION,
+      fixedSlot: (id) => memory.current.numberFor(id) - 1,
       terrain,
-      testConfig,
-    ],
-  );
+      testing: testConfig !== null,
+      headingFor: (telemetry) => calibrator.current.heading(telemetry),
+    });
+    // People stay on the map after leaving the view, at their last position and capture.
+    const detected = (snapshot.detection?.detections ?? []).flatMap((d) =>
+      d.track_id !== undefined ? [d.track_id] : [],
+    );
+    return {
+      ...snapshot,
+      pins: memory.current.update(snapshot.pins, now, detected),
+    };
+  }, [
+    active,
+    frames,
+    detection,
+    projectionConfig,
+    history,
+    now,
+    terrain,
+    testConfig,
+  ]);
 }

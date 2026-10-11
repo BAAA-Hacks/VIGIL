@@ -4,6 +4,23 @@ import { createInterface } from "node:readline";
 import { isVehicleTelemetry } from "../../../lib/vehicleTelemetry";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+/** ./replay.sh's fake camera offers the session's reconstructed track; null when not replaying. */
+async function replayTrack(): Promise<{ track: string; sync: string } | null> {
+  const sync = `http://127.0.0.1:${process.env.FAKE_CAMERA_PORT || 8090}/control`;
+  try {
+    const response = await fetch(sync, {
+      signal: AbortSignal.timeout(500),
+      cache: "no-store",
+    });
+    const state = await response.json();
+    return state?.replay === true && typeof state.track === "string"
+      ? { track: state.track, sync }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 export async function GET(request: Request) {
   const origin = request.headers.get("origin");
   if (origin && origin !== new URL(request.url).origin)
@@ -20,9 +37,13 @@ export async function GET(request: Request) {
     "recordings",
     `flight_${new Date().toISOString().replace(/[:.]/g, "-")}.crsf`,
   );
+  // Live Pocket if configured; else the replay's reconstructed flight; else the synthetic mission.
+  const replay = port ? null : await replayTrack();
   const source = port
     ? ["--port", port, "--record", recording]
-    : ["--synthetic"];
+    : replay
+      ? ["--track", replay.track, "--sync", replay.sync]
+      : ["--synthetic"];
   const encoder = new TextEncoder();
   let stop = () => {};
   const stream = new ReadableStream({

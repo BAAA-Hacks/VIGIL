@@ -6,6 +6,9 @@ export interface PinData {
   displayLabel?: string;
   locationNote?: string;
   capturedAt?: number;
+  /** Detected people: false once the person has left the camera view (pin stays). */
+  inView?: boolean;
+  lastSeenAt?: number;
   groundElevationM?: number;
   id: string;
   name: string;

@@ -8,6 +8,7 @@ and publishes VehicleTelemetry JSON (one object per line) for the UI.
   ./telemetry_bridge.py --port ... --record flight1.crsf          live + save raw bytes
   ./telemetry_bridge.py --replay flight1.crsf                     replay a recording
   ./telemetry_bridge.py --synthetic                               scripted fake mission, for UI development
+  ./telemetry_bridge.py --track telemetry_track.json              reconstructed flight, in step with ./replay.sh
   add  --http 8765            to serve Server-Sent Events at http://HOST:8765/telemetry (browser EventSource)
   add  --udp 127.0.0.1:5600   to also send each JSON object as a UDP datagram
 
@@ -36,6 +37,7 @@ from dataclasses import dataclass
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Optional
 from urllib.parse import urlsplit
+from urllib.request import urlopen
 
 import crsf
 
@@ -72,8 +74,13 @@ def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 class TelemetryState:
     """Latest decoded values plus the time each arrived (monotonic seconds)."""
 
-    def __init__(self, relative_yaw: bool = False, source: str = "pocket") -> None:
+    def __init__(self, relative_yaw: bool = False, source: str = "pocket", north_yaw: bool = False,
+                 gps_altitude_msl: bool = True) -> None:
         self.relative_yaw = relative_yaw
+        self.north_yaw = north_yaw  # the source's yaw is a true heading (reconstructed track only)
+        # The GPS frame's altitude is above sea level (firmware patch 0010); the reconstructed
+        # track only knows height above home, so it can't supply a sea-level altitude.
+        self.gps_altitude_msl = gps_altitude_msl
         self.source = source
         self.latest: dict[type, _Timed] = {}
         self.synthetic_started: Optional[float] = None
@@ -103,7 +110,7 @@ class TelemetryState:
         if self.armed_since is not None and self.home is None and _fix_valid(gps):
             self.home = (gps.lat, gps.lon)
         baro = self._get(crsf.BaroAltitude)
-        if isinstance(decoded, crsf.Gps) and _fix_valid(decoded) and baro is not None:
+        if isinstance(decoded, crsf.Gps) and _fix_valid(decoded) and baro is not None and self.gps_altitude_msl:
             sample = decoded.altitude_m - baro.altitude_m
             if self.msl_offset is None:
                 self.msl_offset = sample
@@ -139,7 +146,7 @@ class TelemetryState:
         altitude = None if baro is None else round(baro.altitude_m, 1)
         if baro is not None and self.msl_offset is not None:
             altitude_msl = round(baro.altitude_m + self.msl_offset, 1)
-        elif baro is None and _fix_valid(gps):
+        elif baro is None and _fix_valid(gps) and self.gps_altitude_msl:
             altitude_msl = float(gps.altitude_m)
         else:
             altitude_msl = None
@@ -203,7 +210,10 @@ class TelemetryState:
             },
             "source": self.source,
         }
-        if mag is not None and mag.healthy and mag.calibrated:
+        if self.north_yaw and attitude is not None:
+            msg["yaw_deg"] = round(attitude.yaw_deg % 360.0, 1)
+            msg["yaw_reference"] = "north"
+        elif mag is not None and mag.healthy and mag.calibrated:
             msg["yaw_deg"] = round(mag.heading_deg % 360.0, 1)
             msg["yaw_reference"] = "magnetic"
         elif self.relative_yaw and attitude is not None:
@@ -370,6 +380,58 @@ class SyntheticSource:
         return att + bat + mode + gps + vario + baro + sensors + link
 
 
+class TrackSource:
+    """A reconstructed flight (AI/scripts/make_replay_track.py) replayed in step with ./replay.sh.
+
+    Each read polls the fake camera's /control for the recording frame it is serving and emits
+    that keyframe as CRSF bytes, so it goes through the same decoder as live data. A paused
+    replay freezes the drone; without the fake camera nothing is sent (link "lost").
+    Output is marked source="replay-track"; the yaw is a true heading (yaw_reference "north").
+    """
+
+    SATELLITES = 12
+
+    def __init__(self, path: str, sync_url: str) -> None:
+        with open(path, encoding="utf-8") as handle:
+            keyframes = json.load(handle)["keyframes"]
+        self.keyframes = {k["frame"]: k for k in keyframes}
+        self.first, self.last = min(self.keyframes), max(self.keyframes)
+        self.sync_url = sync_url
+
+    def current_frame(self) -> Optional[int]:
+        try:
+            with urlopen(self.sync_url, timeout=0.3) as response:
+                frame = json.loads(response.read()).get("session_frame")
+            return frame if isinstance(frame, int) else None
+        except (OSError, ValueError):
+            return None
+
+    def frames_for(self, k: dict) -> bytes:
+        def angle(deg: float) -> bytes:
+            return int(round(math.radians((deg + 180.0) % 360.0 - 180.0) * 10000)).to_bytes(2, "big", signed=True)
+
+        # INAV puts pitch nose-down positive on the wire; the track (like the contract) is nose-up.
+        att = crsf.build_frame(crsf.ATTITUDE, angle(-k["pitch_deg"]) + angle(k["roll_deg"]) + angle(k["heading_deg"]))
+        gps = crsf.build_frame(crsf.GPS, int(round(k["lat"] * 1e7)).to_bytes(4, "big", signed=True)
+                               + int(round(k["lon"] * 1e7)).to_bytes(4, "big", signed=True)
+                               + int(round(k["speed_ms"] * 3.6 * 10)).to_bytes(2, "big")
+                               + int(round(k["course_deg"] % 360.0 * 100)).to_bytes(2, "big")
+                               + (int(round(k["alt_m"])) + 1000).to_bytes(2, "big") + bytes([self.SATELLITES]))
+        mode = crsf.build_frame(crsf.FLIGHT_MODE, k["mode"].encode() + b"\x00")
+        vario = crsf.build_frame(crsf.VARIO, (0).to_bytes(2, "big", signed=True))
+        # Height above home goes in the baro-altitude frame, as from the drone (decimetres + 10000).
+        baro = crsf.build_frame(crsf.BARO_ALTITUDE, (int(round(k["alt_m"] * 10)) + 10000).to_bytes(2, "big") + b"\x00")
+        link = crsf.build_frame(crsf.LINK_STATISTICS, bytes([(-40) & 0xFF, 0, 100, 10, 0, 7, 3, (-40) & 0xFF, 100, 8]))
+        return att + gps + mode + vario + baro + link
+
+    def read(self, _n: int) -> bytes:
+        time.sleep(0.1)
+        frame = self.current_frame()
+        if frame is None:
+            return b""
+        return self.frames_for(self.keyframes[min(max(frame, self.first), self.last)])
+
+
 # --- Server-Sent Events output ----------------------------------------------
 
 class SseHub:
@@ -503,6 +565,9 @@ def main() -> int:
     src.add_argument("--port", help="Pocket USB serial device (EdgeTX, Telemetry Mirror mode)")
     src.add_argument("--replay", metavar="FILE", help="replay raw bytes saved with --record")
     src.add_argument("--synthetic", action="store_true", help="generate a scripted fake mission for UI work")
+    src.add_argument("--track", metavar="FILE", help="reconstructed flight (telemetry_track.json), synced to ./replay.sh")
+    ap.add_argument("--sync", default="http://127.0.0.1:8090/control",
+                    help="fake camera control URL that --track follows (default %(default)s)")
     ap.add_argument("--record", metavar="FILE", help="also save the raw serial bytes (live only)")
     ap.add_argument("--udp", metavar="HOST:PORT", help="also send each JSON object as a UDP datagram")
     ap.add_argument("--http", metavar="PORT", type=int, help="serve Server-Sent Events at /telemetry on this port")
@@ -522,6 +587,8 @@ def main() -> int:
         source, label = open_serial(args.port), "pocket"
     elif args.replay:
         source, label = ReplaySource(args.replay), "replay"
+    elif args.track:
+        source, label = TrackSource(args.track, args.sync), "replay-track"
     else:
         source, label = SyntheticSource(), "synthetic"
 
@@ -530,7 +597,8 @@ def main() -> int:
     record = open(args.record, "ab", buffering=0) if args.record and args.port else None
     # Treat SIGTERM (e.g. from `timeout` or a service manager) like Ctrl+C.
     signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
-    state = TelemetryState(relative_yaw=args.relative_yaw or args.synthetic, source=label)
+    state = TelemetryState(relative_yaw=args.relative_yaw or args.synthetic, source=label,
+                           north_yaw=bool(args.track), gps_altitude_msl=not args.track)
     try:
         run(source, state, args.rate, udp=udp, record=record, hub=hub)
     except (KeyboardInterrupt, BrokenPipeError):

@@ -63,7 +63,6 @@ export function getDroneReadings(
     data?.armed == null ? "Unknown" : data.armed ? "Armed" : "Disarmed";
 
   return [
-    { label: "Battery", value: formatNumber(data?.battery_v, "V") },
     {
       label: "Altitude (above home)",
       value: formatNumber(data?.altitude_m, "m"),
@@ -95,7 +94,6 @@ export function getDroneReadings(
       value: formatNumber(data?.distance_home_m, "m"),
     },
     { label: "Flight time", value: flightTime },
-    { label: "PCB temperature", value: formatNumber(data?.pcb_temp_c, "°C") },
     {
       label: "Altitude (sea level)",
       value: formatNumber(data?.altitude_msl_m, "m"),

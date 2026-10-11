@@ -42,6 +42,8 @@ export interface LocationSnapshotInput {
   headingFor: (telemetry: VehicleTelemetry) => number | null;
   /** Used instead of projection whenever there is no fresh telemetry with a valid GPS fix. */
   fixedLocation?: FixedLocation | null;
+  /** Stable spacing slot per person at the fixed location; defaults to the detection order. */
+  fixedSlot?: (personId: string) => number;
 }
 
 function personPin(
@@ -90,6 +92,7 @@ export function locationSnapshot({
   testing,
   headingFor,
   fixedLocation = null,
+  fixedSlot,
 }: LocationSnapshotInput) {
   const frame = detection
     ? (frames.find((f) => f.frame_id === detection.frame_id) ?? null)
@@ -121,17 +124,20 @@ export function locationSnapshot({
     latest !== undefined &&
     now - telemetryReceived <= LOCATION_STALE_MS &&
     validFix(latest);
-  if (fixedLocation && !testing && !liveFix) {
+  // Fixed location until projection is possible: no GPS fix, or Location settings not applied.
+  if (fixedLocation && !testing && (!liveFix || !config)) {
     if (!frame || !current)
       return { ...base, message: "Waiting for matching frame and detections" };
     current.detections
       .filter((d) => d.class === "person" || d.class === "human")
       .forEach((d, index) => {
+        const slot =
+          fixedSlot && d.track_id !== undefined ? fixedSlot(d.track_id) : index;
         const spot = offsetCoordinates(
           fixedLocation.latitude,
           fixedLocation.longitude,
           0,
-          index * FIXED_PIN_SPACING_M,
+          slot * FIXED_PIN_SPACING_M,
         );
         pins.push(
           personPin(
@@ -147,7 +153,11 @@ export function locationSnapshot({
     return {
       ...base,
       message: pins.length
-        ? `Fixed location · ${fixedLocation.label}`
+        ? `Fixed location · ${fixedLocation.label}${
+            liveFix
+              ? " · apply Location settings to place people from the drone"
+              : ""
+          }`
         : "No people detected",
     };
   }
@@ -171,9 +181,11 @@ export function locationSnapshot({
   const t = history.at(-1) ?? null;
   if (!t || !validFix(t)) return { ...base, message: "Waiting for GPS fix" };
   const heading =
-    t.yaw_deg !== null && config.headingOffsetDeg !== undefined
-      ? wrap(t.yaw_deg + config.headingOffsetDeg)
-      : headingFor(t);
+    t.yaw_deg !== null && t.yaw_reference === "north"
+      ? wrap(t.yaw_deg)
+      : t.yaw_deg !== null && config.headingOffsetDeg !== undefined
+        ? wrap(t.yaw_deg + config.headingOffsetDeg)
+        : headingFor(t);
   current.detections
     .filter((d) => d.class === "person" || d.class === "human")
     .forEach((d, index) => {

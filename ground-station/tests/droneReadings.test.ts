@@ -14,7 +14,8 @@ test("pin hover fills drone info and retains the 10 m ground clearance", () => {
   );
   assert.equal(readings.get("Ground speed"), "0.0 m/s");
   assert.equal(readings.get("Distance from home"), "0.0 m");
-  assert.equal(readings.get("PCB temperature"), "38.5 °C");
+  assert.equal(readings.has("PCB temperature"), false);
+  assert.equal(readings.has("Battery"), false);
   assert.equal(readings.get("Altitude (sea level)"), "510.0 m");
   assert.equal(readings.get("Roll / pitch"), "0.4 ° / -0.6 °");
   assert.equal(readings.get("Flight time"), "00:12");

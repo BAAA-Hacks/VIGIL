@@ -44,7 +44,11 @@ function PersonDetails({
             presentation="preview"
           />
           <figcaption className="space-y-1 px-2 py-2 text-[10px] leading-relaxed text-[color:var(--color-ink)]/80">
-            <p>Capture used for this location · highlighted person</p>
+            <p>
+              {pin.inView === false
+                ? "Not in view · best recent capture of this person"
+                : "Best recent capture · highlighted person"}
+            </p>
             <p>
               {new Date(pin.review.frame.timestamp_ms).toLocaleTimeString()} ·{" "}
               {Math.round(pin.review.detection.confidence * 100)}% detection
@@ -139,7 +143,12 @@ export function PersonPin({
           </span>
           <span className="text-xs font-medium text-[color:var(--color-ink)]">
             {pin.name}
-            {!pin.manual && pin.status !== "normal" && (
+            {pin.inView === false && pin.lastSeenAt !== undefined && (
+              <span className="mt-1 block text-[10px] text-[color:var(--color-ink)]/60">
+                Last seen {new Date(pin.lastSeenAt).toLocaleTimeString()}
+              </span>
+            )}
+            {!pin.manual && temperature.label && pin.status !== "normal" && (
               <span
                 className={"mt-1 block text-[10px] " + temperature.textClass}
               >

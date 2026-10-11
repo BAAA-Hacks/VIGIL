@@ -185,3 +185,10 @@ test("terrain solver recovers flat and slope intersections, refuses uncovered te
     false,
   );
 });
+
+test("a head cut off at the top still locates the person; cut-off feet do not", () => {
+  const headCut = projectPerson([0.4, 0, 0.5, 0.7], packet, 0, config);
+  assert.equal(headCut.available, true);
+  const feetCut = projectPerson([0.4, 0.3, 0.5, 1], packet, 0, config);
+  assert.equal(feetCut.available, false);
+});

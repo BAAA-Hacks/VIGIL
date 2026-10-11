@@ -53,6 +53,7 @@ export class PersonMapController {
   private home: Leaflet.Marker | null = null;
   private droneLastSeen = 0;
   private lastCourse: number | null = null;
+  private wasArmed = false;
   private fittedSource = "";
   private focusRevision = -1;
   private layer: MapView;
@@ -134,7 +135,17 @@ export class PersonMapController {
           : pin.elevationState === "loading"
             ? "Ground elevation looking up…"
             : "Ground elevation unavailable"
-        : `${pin.temp} · ${TEMPERATURE_STATUS[pin.status].label}`;
+        : `${pin.temp}${
+            TEMPERATURE_STATUS[pin.status].label
+              ? ` · ${TEMPERATURE_STATUS[pin.status].label}`
+              : ""
+          }${
+            pin.inView === false && pin.lastSeenAt !== undefined
+              ? ` · not in view, last seen ${new Date(pin.lastSeenAt).toLocaleTimeString()}`
+              : ""
+          }`;
+      // People who left the camera view stay at their last position, dimmed.
+      entry.marker.setOpacity(pin.inView === false ? 0.55 : 1);
       const title = `${pin.name}: ${pin.coords} · ${detail}`;
       entry.marker.getElement()?.setAttribute("title", title);
       entry.marker.getElement()?.setAttribute("aria-label", title);
@@ -176,7 +187,13 @@ export class PersonMapController {
   /** Flight trail, home point and travel direction; the trail outlives brief link dropouts. */
   private updateTrack(drone: VehicleTelemetry) {
     const now = Date.now();
-    if (this.droneLastSeen && now - this.droneLastSeen > TRAIL_RESET_AFTER_MS) {
+    // A new take-off (or a long absence) starts a new trail.
+    const takeOff = drone.armed === true && !this.wasArmed;
+    this.wasArmed = drone.armed === true;
+    if (
+      takeOff ||
+      (this.droneLastSeen && now - this.droneLastSeen > TRAIL_RESET_AFTER_MS)
+    ) {
       this.trailPoints = [];
       this.lastCourse = null;
     }
@@ -215,7 +232,7 @@ export class PersonMapController {
         }).addTo(this.map);
       } else this.home.setLatLng([home.lat, home.lon]);
     }
-    // Magnetometer heading (nose direction) when calibrated, else GPS course (see droneHeading.ts).
+    // North-referenced yaw (calibrated magnetometer or replay track), else GPS course (droneHeading.ts).
     const heading = markerHeading(drone, this.lastCourse);
     this.lastCourse = heading.lastCourse;
     if (this.droneArrow) {
@@ -225,7 +242,7 @@ export class PersonMapController {
         this.droneArrow.style.opacity = heading.current ? "1" : "0.4";
         this.droneArrow.title =
           heading.source === "nose"
-            ? "Heading (magnetometer)"
+            ? "Heading"
             : "Direction of travel (GPS course)";
       }
     }

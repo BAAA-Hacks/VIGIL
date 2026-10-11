@@ -51,3 +51,12 @@ test("without a magnetometer the arrow uses GPS course, dimmed while hovering", 
     null,
   );
 });
+
+test("the replay track's north-referenced yaw also points the arrow", () => {
+  const h = markerHeading(
+    { ...telemetry, yaw_deg: 135, yaw_reference: "north", speed_ms: 0 },
+    null,
+  );
+  assert.equal(h.deg, 135);
+  assert.equal(h.source, "nose");
+});

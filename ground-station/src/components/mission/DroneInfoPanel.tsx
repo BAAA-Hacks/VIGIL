@@ -31,7 +31,12 @@ export function DroneInfoPanel({
   const groups = [
     {
       title: "Navigation",
-      labels: ["Coordinates", "Course", "Satellites / GPS fix"],
+      labels: [
+        "Coordinates",
+        "Altitude (sea level)",
+        "Course",
+        "Satellites / GPS fix",
+      ],
     },
     {
       title: "Attitude",
@@ -42,12 +47,8 @@ export function DroneInfoPanel({
       ],
     },
     {
-      title: "Power & radio",
-      labels: [
-        "Altitude (sea level)",
-        "Uplink quality / RSSI",
-        "Downlink quality / RSSI",
-      ],
+      title: "Radio",
+      labels: ["Uplink quality / RSSI", "Downlink quality / RSSI"],
     },
     {
       title: "Sensors",
@@ -90,7 +91,7 @@ export function DroneInfoPanel({
           />
           More drone details
           <span className="ml-auto hidden text-[10px] font-normal text-[color:var(--color-ink)]/80 sm:inline">
-            Navigation · Attitude · Power & radio · Sensors
+            Navigation · Attitude · Radio · Sensors
           </span>
         </summary>
         <div className="grid max-h-60 grid-cols-1 gap-5 overflow-y-auto border-t border-[color:var(--color-ink)]/10 px-[18px] py-3 md:grid-cols-2 xl:grid-cols-4">

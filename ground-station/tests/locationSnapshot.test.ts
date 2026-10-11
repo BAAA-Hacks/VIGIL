@@ -194,3 +194,29 @@ test("fixed-location pins carry their own frame and box, one pin per person", ()
     );
   });
 });
+
+test("with a GPS fix but no Location settings, people stay at the fixed location", () => {
+  const input = inputs();
+  input.testing = false;
+  input.config = null;
+  input.fixedLocation = UCF_BUSINESS_ADMINISTRATION;
+  const result = locationSnapshot(input);
+  assert.equal(result.pins.length, 10);
+  assert.match(result.message, /apply Location settings/);
+});
+
+test("a true-north yaw (reconstructed track) is used as the heading without an offset", () => {
+  const input = inputs();
+  const north = locationSnapshot(input);
+  input.history = [
+    { ...input.history[0], yaw_deg: 90, yaw_reference: "north" },
+  ];
+  input.config = { ...input.config!, headingOffsetDeg: undefined };
+  input.headingFor = () => null;
+  const east = locationSnapshot(input);
+  assert.equal(east.pins.length, north.pins.length);
+  assert.ok(east.pins.length > 0);
+  const drone = input.history[0];
+  // Facing east, people are east of the drone, not north.
+  assert.ok(east.pins.every((p) => p.longitude > drone.lon!));
+});

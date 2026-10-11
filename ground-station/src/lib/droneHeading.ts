@@ -6,7 +6,7 @@ export const MIN_COURSE_SPEED_MS = 0.5;
 export interface MarkerHeading {
   /** Degrees clockwise from north, or null when no direction is known yet. */
   deg: number | null;
-  /** "nose" = magnetometer heading; "course" = GPS direction of travel. */
+  /** "nose" = north-referenced yaw (magnetometer or replay track); "course" = GPS direction of travel. */
   source: "nose" | "course" | null;
   /** Full strength for a live heading; dimmed for a remembered course while hovering. */
   current: boolean;
@@ -15,8 +15,8 @@ export interface MarkerHeading {
 }
 
 /**
- * Direction for the drone marker's arrow. A calibrated magnetometer (yaw_reference "magnetic")
- * gives the nose direction even while hovering; otherwise fall back to GPS course over ground,
+ * Direction for the drone marker's arrow. A north-referenced yaw (yaw_reference "magnetic" from a
+ * calibrated magnetometer, or "north" from the replay track) gives the nose direction even while hovering; otherwise fall back to GPS course over ground,
  * which is only meaningful while moving, so a hovering drone keeps its last good course, dimmed.
  */
 export function markerHeading(
@@ -30,7 +30,7 @@ export function markerHeading(
     (drone.speed_ms ?? 0) >= MIN_COURSE_SPEED_MS;
   const course = moving ? drone.course_deg! : lastCourse;
   if (
-    drone.yaw_reference === "magnetic" &&
+    (drone.yaw_reference === "magnetic" || drone.yaw_reference === "north") &&
     drone.yaw_deg !== null &&
     Number.isFinite(drone.yaw_deg)
   )

@@ -8,6 +8,7 @@ import { DroneInfoPanel } from "./DroneInfoPanel";
 import { PinsPanel, type TemperatureFilter } from "./PinsPanel";
 import { useVehicleTelemetry } from "../../hooks/useVehicleTelemetry";
 import { usePinTest } from "../../hooks/usePinTest";
+import { useReplayControl } from "../../hooks/useReplayControl";
 import { useThermalFeed } from "../../hooks/useThermalFeed";
 import { usePersonLocations } from "../../hooks/usePersonLocations";
 import { LocationSettings } from "./LocationSettings";
@@ -16,6 +17,7 @@ import { MOCK_PINS } from "../../data/missionDemo";
 export function MissionDashboard() {
   const vehicle = useVehicleTelemetry();
   const pinTest = usePinTest();
+  const replay = useReplayControl();
   const locations = usePersonLocations(
     pinTest.enabled ? null : vehicle.data,
     pinTest.config,
@@ -158,6 +160,7 @@ export function MissionDashboard() {
           pinTest.stop();
           vehicle.toggleTestData();
         }}
+        replay={replay}
         pinTestEnabled={pinTest.enabled}
         onTogglePinTest={() => {
           if (vehicle.enabled) vehicle.toggleTestData();

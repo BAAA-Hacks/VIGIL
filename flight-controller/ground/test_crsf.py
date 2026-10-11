@@ -330,5 +330,34 @@ class ServerSentEvents(unittest.TestCase):
             hub.publish(json.dumps({"n": 2}))
             self.assertEqual(r.readline(), b'data: {"n": 2}\n')  # then each new one
 
+
+class TrackReplay(unittest.TestCase):
+    def test_track_frames_decode_to_the_keyframe_and_follow_the_camera(self):
+        import tempfile
+        keyframe = {"frame": 7, "lat": 28.60039, "lon": -81.198814, "alt_m": 1.2, "heading_deg": 45.0,
+                    "pitch_deg": -3.0, "roll_deg": 1.0, "speed_ms": 0.35, "course_deg": 45.0,
+                    "armed": True, "mode": "ANGL"}
+        with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as handle:
+            json.dump({"keyframes": [keyframe, dict(keyframe, frame=8, lat=28.6005)]}, handle)
+        source = telemetry_bridge.TrackSource(handle.name, "http://unused")
+        state = TelemetryState(source="replay-track", north_yaw=True)
+        parser = crsf.FrameParser()
+        with mock.patch.object(telemetry_bridge.time, "sleep"), \
+             mock.patch.object(source, "current_frame", return_value=7):
+            for ftype, payload in parser.feed(source.read(256)):
+                state.update(crsf.decode(ftype, payload), 1.0)
+        snap = state.snapshot(1.0)
+        self.assertAlmostEqual(snap["lat"], 28.60039, places=5)
+        self.assertAlmostEqual(snap["pitch_deg"], -3.0, places=1)  # nose-up contract survives the wire
+        self.assertAlmostEqual(snap["yaw_deg"], 45.0, places=1)
+        self.assertEqual(snap["yaw_reference"], "north")
+        self.assertEqual(snap["altitude_m"], 1.2)      # height above home, from the baro-altitude frame (0.1 m)
+        self.assertIsNone(snap["altitude_msl_m"])      # the track has no sea-level altitude
+        self.assertTrue(snap["armed"])
+        self.assertIsNone(snap["battery_v"])
+        with mock.patch.object(telemetry_bridge.time, "sleep"), \
+             mock.patch.object(source, "current_frame", return_value=None):
+            self.assertEqual(source.read(256), b"")  # no replay running: no telemetry
+
 if __name__ == "__main__":
     unittest.main()
