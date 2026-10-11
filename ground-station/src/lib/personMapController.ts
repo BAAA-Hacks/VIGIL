@@ -211,7 +211,10 @@ export class PersonMapController {
   setLayer(layer: MapView) {
     if (layer === this.layer) return;
     this.layer = layer;
-    this.tiles.setUrl(tileUrl(layer));
+    // Leaflet 1.9 redraw uses the fractional map zoom in tile URLs. Reattaching
+    // runs its normal integer tile-zoom setup without changing the viewport.
+    this.tiles.remove();
+    this.tiles.setUrl(tileUrl(layer), true).addTo(this.map);
   }
   placement(clientX?: number, clientY?: number) {
     const rect = this.map.getContainer().getBoundingClientRect();

@@ -34,8 +34,8 @@ export function ViewerPane({
   const thermal = kind === "thermal";
   const label = thermal ? "Thermal camera" : "Map";
   const placement = primary
-    ? "inset-x-0 bottom-0 top-[42px] z-0"
-    : "bottom-6 right-2 z-10 h-[160px] w-[192px] rounded-[12px] border border-[color:var(--color-ink)]/35 pt-7 max-[600px]:h-[127px] max-[600px]:w-[150px]";
+    ? "inset-x-0 bottom-0 top-[var(--viewer-top,42px)] z-0"
+    : "bottom-6 right-2 z-10 max-h-[calc(100%-var(--viewer-top,42px)-32px)] h-[160px] w-[192px] rounded-[12px] border border-[color:var(--color-ink)]/35 pt-7 max-[600px]:h-[127px] max-[600px]:w-[150px]";
   const background = thermal
     ? "bg-[var(--color-ink)]"
     : "bg-[var(--color-paper)]";
@@ -185,4 +185,3 @@ export function ViewerPane({
     </>
   );
 }
-

@@ -31,10 +31,12 @@ export function MapArea(props: MapAreaProps) {
       aria-label="Map and thermal camera"
     >
       <div className="flex h-[42px] items-center justify-between gap-2 bg-[var(--color-ink)] px-2 text-xs text-[color:var(--color-paper)]">
-        <span className="shrink-0 pr-2 font-medium max-[1100px]:sr-only">
-          {thermalPrimary ? "Thermal camera" : "Search area"}
-        </span>
-        <div data-map-tools className="flex min-w-0 items-center" />
+        <div className="flex min-w-0 items-center">
+          <span className="shrink-0 pr-2 font-medium max-[600px]:text-[10px]">
+            {thermalPrimary ? "Thermal camera" : "Search area"}
+          </span>
+          <div data-map-tools className="flex min-w-0 items-center" />
+        </div>
         <MapViewSelect value={layer} onChange={setLayer} />
         <button
           type="button"

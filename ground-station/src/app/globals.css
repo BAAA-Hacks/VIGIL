@@ -40,7 +40,7 @@
 /* Shared scrollbars: neutral tracks and rounded charcoal thumbs. */
 @layer base {
   * {
-    scrollbar-width: thin;
+    scrollbar-width: auto;
     scrollbar-color: color-mix(in srgb, var(--color-ink) 45%, transparent)
       var(--color-paper);
   }
@@ -52,8 +52,8 @@
     }
 
     ::-webkit-scrollbar {
-      width: 10px;
-      height: 10px;
+      width: 16px;
+      height: 16px;
     }
 
     ::-webkit-scrollbar-track,
@@ -62,8 +62,8 @@
     }
 
     ::-webkit-scrollbar-thumb {
-      min-height: 28px;
-      border: 3px solid var(--color-paper);
+      min-height: 40px;
+      border: 2px solid var(--color-paper);
       border-radius: 999px;
       background: color-mix(in srgb, var(--color-ink) 45%, transparent);
       background-clip: padding-box;

@@ -28,6 +28,7 @@ export function PersonMap(props: PersonMapProps) {
   const latest = useRef(props);
   const [error, setError] = useState(false);
   const [toolbarHost, setToolbarHost] = useState<HTMLElement | null>(null);
+
   const planner = useMissionPlanner();
   const plannerRef = useRef(planner);
   useEffect(() => {
@@ -67,6 +68,7 @@ export function PersonMap(props: PersonMapProps) {
     let disposed = false;
     const host = container.current;
     if (!host) return;
+
     setToolbarHost(
       host.closest("section")?.querySelector<HTMLElement>("[data-map-tools]") ??
         null,
@@ -139,7 +141,7 @@ export function PersonMap(props: PersonMapProps) {
           addShape(kind as PathShapeKind, event.clientX, event.clientY);
         }
       }}
-      className="relative size-full has-[details[open]]:grid has-[details[open]]:grid-cols-[288px_minmax(0,1fr)] max-[600px]:has-[details[open]]:grid-cols-1 max-[600px]:has-[details[open]]:grid-rows-[minmax(0,1fr)_minmax(180px,1fr)] [&_.leaflet-control-attribution]:max-w-[calc(100%-16px)] [&_.leaflet-control-attribution]:whitespace-nowrap [&_.leaflet-control-attribution]:overflow-x-auto [&_.leaflet-control-attribution]:[scrollbar-width:none] [&_.leaflet-control-attribution::-webkit-scrollbar]:hidden [&_.leaflet-control-attribution]:text-[9px] [&_.leaflet-control-attribution_a]:text-[color:var(--color-ink)]"
+      className="relative size-full has-[>[data-mission-path][open]]:grid has-[>[data-mission-path][open]]:grid-cols-[288px_minmax(0,1fr)] max-[600px]:has-[>[data-mission-path][open]]:grid-cols-1 max-[600px]:has-[>[data-mission-path][open]]:grid-rows-[minmax(0,1fr)_minmax(180px,1fr)] [&_.leaflet-control-attribution]:max-w-[calc(100%-16px)] [&_.leaflet-control-attribution]:whitespace-nowrap [&_.leaflet-control-attribution]:overflow-x-auto [&_.leaflet-control-attribution]:[scrollbar-width:none] [&_.leaflet-control-attribution::-webkit-scrollbar]:hidden [&_.leaflet-control-attribution]:text-[9px] [&_.leaflet-control-attribution_a]:text-[color:var(--color-ink)]"
     >
       <div
         ref={container}
@@ -161,16 +163,20 @@ export function PersonMap(props: PersonMapProps) {
               toolbarHost,
             )}
           <MissionPathPanel planner={planner} />
-          <OfflineMapTools
-            openMission={async () => {
-              if (!controller.current) throw new Error("Map is not ready");
-              await controller.current.openOfflineMission();
-            }}
-            save={async (progress) => {
-              if (!controller.current) throw new Error("Map is not ready");
-              await controller.current.saveOfflineArea(progress);
-            }}
-          />
+          {toolbarHost &&
+            createPortal(
+              <OfflineMapTools
+                openMission={async () => {
+                  if (!controller.current) throw new Error("Map is not ready");
+                  await controller.current.openOfflineMission();
+                }}
+                save={async (progress) => {
+                  if (!controller.current) throw new Error("Map is not ready");
+                  await controller.current.saveOfflineArea(progress);
+                }}
+              />,
+              toolbarHost,
+            )}
         </>
       )}
       {error && (
