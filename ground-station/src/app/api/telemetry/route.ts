@@ -1,6 +1,7 @@
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { createInterface } from "node:readline";
+import { detectPocketPort } from "../../../lib/pocketPort";
 import { isVehicleTelemetry } from "../../../lib/vehicleTelemetry";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,15 +31,16 @@ export async function GET(request: Request) {
     "../flight-controller/ground/telemetry_bridge.py",
   );
   // TELEMETRY_SERIAL_PORT (the Pocket's USB serial device) selects live drone telemetry and
-  // records the raw CRSF bytes; without it the bridge runs its synthetic mission.
-  const port = process.env.TELEMETRY_SERIAL_PORT;
+  // records the raw CRSF bytes. Without it: a running replay, else a Pocket found on USB, else the
+  // synthetic mission. Checked on every connection, so plugging the Pocket in needs only a reload.
+  const configured = process.env.TELEMETRY_SERIAL_PORT;
+  const replay = configured ? null : await replayTrack();
+  const port = configured ?? (replay ? undefined : detectPocketPort());
   const recording = path.resolve(
     path.dirname(script),
     "recordings",
     `flight_${new Date().toISOString().replace(/[:.]/g, "-")}.crsf`,
   );
-  // Live Pocket if configured; else the replay's reconstructed flight; else the synthetic mission.
-  const replay = port ? null : await replayTrack();
   const source = port
     ? ["--port", port, "--record", recording]
     : replay
