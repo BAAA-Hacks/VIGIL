@@ -603,6 +603,13 @@ def main() -> None:
     log.info("Tracker: %s (start>=%.2f keep>=%.2f buffer=%d hold=%d frames)",
              tracker_path, args.conf, args.keep_conf, args.track_buffer, args.hold_frames)
     detector = MergedDetector(models, person_classes, tracker_path, args.imgsz, args.iou, parse_device(args.device))
+    # The first inference takes seconds (CUDA init); doing it mid-stream stalls the socket long
+    # enough for the camera to drop the client, so warm every model up before connecting.
+    started = time.perf_counter()
+    blank = np.zeros((EXPECTED_HEIGHT, EXPECTED_WIDTH, 3), np.uint8)
+    for warm_model in models:
+        warm_model.predict(blank, imgsz=args.imgsz, device=parse_device(args.device), verbose=False)
+    log.info("Models warmed up in %.1f s", time.perf_counter() - started)
     try:
         while args.max_frames is None or published < args.max_frames:
             try:

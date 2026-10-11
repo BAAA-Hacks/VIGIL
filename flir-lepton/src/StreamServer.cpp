@@ -199,6 +199,9 @@ size_t StreamServer::rawClientCount() {
 
 void StreamServer::handleStream() {
   WiFiClient socket = server_.client();
+  xSemaphoreTake(clientsMutex_, portMAX_DELAY);
+  dropDeadClients(mjpegClients_, MAX_MJPEG_CLIENTS, "MJPEG (replaced)");
+  xSemaphoreGive(clientsMutex_);
   // Check for a free slot first so a refused client still gets a proper HTTP error.
   if (mjpegClientCount() >= MAX_MJPEG_CLIENTS) {
     server_.send(503, "text/plain", "Too many stream clients\n");
@@ -218,6 +221,11 @@ void StreamServer::handleStream() {
 
 void StreamServer::handleRaw() {
   WiFiClient socket = server_.client();
+  // Dead clients are otherwise only noticed when a frame is sent, so a client that vanished
+  // while the camera was not producing frames would hold the only slot forever.
+  xSemaphoreTake(clientsMutex_, portMAX_DELAY);
+  dropDeadClients(rawClients_, MAX_RAW_CLIENTS, "raw (replaced)");
+  xSemaphoreGive(clientsMutex_);
   if (rawClientCount() >= MAX_RAW_CLIENTS) {
     server_.send(503, "text/plain", "Too many raw clients\n");
     return;
@@ -380,6 +388,18 @@ void StreamServer::dropClient(Client& client, const char* kind) {
   client.socket.stop();
   client.socket = WiFiClient();
   client.active = false;
+}
+
+// Caller holds clientsMutex_. Drops clients that have disconnected or accepted no frame for
+// CLIENT_STALL_DROP_MS, so a reconnecting viewer can take over a stale slot.
+void StreamServer::dropDeadClients(Client* clients, size_t count, const char* kind) {
+  uint32_t nowMs = millis();
+  for (size_t i = 0; i < count; i++) {
+    Client& client = clients[i];
+    if (client.active && (!client.socket.connected() || nowMs - client.lastSendMs > CLIENT_STALL_DROP_MS)) {
+      dropClient(client, kind);
+    }
+  }
 }
 
 void StreamServer::serveMjpeg(const FrameInfo& info, uint32_t nowMs) {
