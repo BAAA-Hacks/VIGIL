@@ -8,14 +8,7 @@ import { MissionShapeLayer } from "./missionShapeLayer";
 import type { PathShape } from "./missionPath";
 import { TEMPERATURE_STATUS } from "./temperatureStatus";
 
-const tileUrl = (view: MapView) => {
-  const service = {
-    satellite: "World_Imagery",
-    topographic: "World_Topo_Map",
-    street: "World_Street_Map",
-  }[view];
-  return `https://server.arcgisonline.com/ArcGIS/rest/services/${service}/MapServer/tile/{z}/{y}/{x}`;
-};
+const tileUrl = (view: MapView) => `/api/map-tiles/${view}/{z}/{x}/{y}`;
 
 function popup(name: string, coordinates: string, detail: string) {
   const content = document.createElement("div");
@@ -30,6 +23,12 @@ function popup(name: string, coordinates: string, detail: string) {
   );
   return content;
 }
+
+/** Trail points closer than this to the previous one are skipped (GPS jitter while hovering). */
+const TRAIL_MIN_STEP_M = 1;
+const TRAIL_MAX_POINTS = 5000;
+/** A drone absent this long starts a new trail when it comes back (a new flight). */
+const TRAIL_RESET_AFTER_MS = 60_000;
 
 interface PersonMarker {
   marker: Leaflet.Marker;
@@ -46,7 +45,13 @@ export class PersonMapController {
   private readonly stopZoom: () => void;
   private readonly people = new Map<string, PersonMarker>();
   private drone: Leaflet.Marker | null = null;
+  private droneArrow: HTMLSpanElement | null = null;
   private droneContent = "";
+  private trail: Leaflet.Polyline | null = null;
+  private trailPoints: [number, number][] = [];
+  private home: Leaflet.Marker | null = null;
+  private droneLastSeen = 0;
+  private lastCourse: number | null = null;
   private fittedSource = "";
   private focusRevision = -1;
   private layer: MapView;
@@ -67,7 +72,7 @@ export class PersonMapController {
       zoomControl: false,
       zoomSnap: 0,
       zoomDelta: 0.5,
-    }).setView([34.053, -118.243], 16);
+    }).setView([28.601667, -81.200556], 16);
     L.control.zoom({ position: "bottomleft" }).addTo(this.map);
     this.stopZoom = enableSmoothMapZoom(this.map);
     // Set the initial bounds before requesting tiles, and request only the chosen layer.
@@ -148,6 +153,8 @@ export class PersonMapController {
         ? "live"
         : "fixture"
       : this.fittedSource;
+    if (source === "fixture" && !fixed && !this.fittedSource)
+      this.fittedSource = source;
     if (pins.length && source !== this.fittedSource) {
       this.fittedSource = source;
       const points: [number, number][] = pins.map((pin) => [
@@ -165,18 +172,86 @@ export class PersonMapController {
     }
   }
 
+  /** Flight trail, home point and travel direction; the trail outlives brief link dropouts. */
+  private updateTrack(drone: VehicleTelemetry) {
+    const now = Date.now();
+    if (this.droneLastSeen && now - this.droneLastSeen > TRAIL_RESET_AFTER_MS) {
+      this.trailPoints = [];
+      this.lastCourse = null;
+    }
+    this.droneLastSeen = now;
+    const point: [number, number] = [drone.lat!, drone.lon!];
+    const last = this.trailPoints.at(-1);
+    if (!last || this.map.distance(last, point) >= TRAIL_MIN_STEP_M) {
+      this.trailPoints.push(point);
+      if (this.trailPoints.length > TRAIL_MAX_POINTS) this.trailPoints.shift();
+    }
+    if (!this.trail)
+      this.trail = this.L.polyline([], {
+        color: "#1f6feb",
+        weight: 3,
+        opacity: 0.8,
+        dashArray: "6 6",
+        interactive: false,
+      }).addTo(this.map);
+    this.trail.setLatLngs(this.trailPoints);
+    const home = drone.home;
+    if (home && Number.isFinite(home.lat) && Number.isFinite(home.lon)) {
+      if (!this.home) {
+        const label = document.createElement("span");
+        label.className =
+          "grid size-6 place-items-center rounded-full border-2 border-[color:var(--color-ink)] bg-[var(--color-paper)] text-[10px] font-bold text-[color:var(--color-ink)]";
+        label.textContent = "H";
+        this.home = this.L.marker([home.lat, home.lon], {
+          icon: this.L.divIcon({
+            html: label,
+            className: "drone-home-icon",
+            iconSize: [24, 24],
+            iconAnchor: [12, 12],
+          }),
+          title: "Home (take-off point)",
+          zIndexOffset: 900,
+        }).addTo(this.map);
+      } else this.home.setLatLng([home.lat, home.lon]);
+    }
+    // GPS course (north-referenced; INAV yaw has no north without a compass). Course is only
+    // meaningful while moving, so a hovering drone keeps its last good course, dimmed.
+    const moving =
+      drone.course_deg !== undefined &&
+      drone.course_deg !== null &&
+      (drone.speed_ms ?? 0) >= 0.5;
+    if (moving) this.lastCourse = drone.course_deg!;
+    if (this.droneArrow) {
+      this.droneArrow.hidden = this.lastCourse === null;
+      if (this.lastCourse !== null) {
+        this.droneArrow.style.transform = `rotate(${this.lastCourse}deg)`;
+        this.droneArrow.style.opacity = moving ? "1" : "0.4";
+      }
+    }
+  }
+
   private updateDrone(drone: VehicleTelemetry | null) {
     if (!drone) {
       this.drone?.remove();
       this.drone = null;
+      this.droneArrow = null;
       this.droneContent = "";
       return;
     }
     if (!this.drone) {
       const label = document.createElement("span");
       label.className =
-        "grid size-8 place-items-center rounded-[4px] border-2 border-[color:var(--color-ink)] bg-[var(--color-blue)] text-xs font-bold text-[color:var(--color-ink)]";
+        "relative grid size-8 place-items-center rounded-[4px] border-2 border-[color:var(--color-ink)] bg-[var(--color-blue)] text-xs font-bold text-[color:var(--color-ink)]";
       label.textContent = "D";
+      // Direction-of-travel pointer, rotated about the marker centre.
+      const arrow = document.createElement("span");
+      arrow.className =
+        "pointer-events-none absolute inset-[-14px] [transform-origin:center]";
+      arrow.innerHTML =
+        '<span class="absolute left-1/2 top-0 -translate-x-1/2 border-x-[6px] border-b-[10px] border-x-transparent border-b-[color:var(--color-ink)]"></span>';
+      arrow.hidden = true;
+      label.append(arrow);
+      this.droneArrow = arrow;
       this.drone = this.L.marker([drone.lat!, drone.lon!], {
         icon: this.L.divIcon({
           html: label,
@@ -191,14 +266,23 @@ export class PersonMapController {
     const current = this.drone.getLatLng();
     if (current.lat !== drone.lat || current.lng !== drone.lon)
       this.drone.setLatLng([drone.lat!, drone.lon!]);
+    this.updateTrack(drone);
     const coordinates = `${drone.lat!.toFixed(6)}, ${drone.lon!.toFixed(6)}`;
-    const altitude =
+    const details = [
       drone.altitude_m === null
         ? "Altitude unavailable"
-        : `${drone.altitude_m.toFixed(1)} m above sea level`;
-    const key = `${coordinates}|${altitude}`;
+        : `${drone.altitude_m.toFixed(1)} m above home`,
+      ...(drone.speed_ms !== undefined && drone.speed_ms !== null
+        ? [`${drone.speed_ms.toFixed(1)} m/s`]
+        : []),
+      ...(drone.distance_home_m !== undefined && drone.distance_home_m !== null
+        ? [`${Math.round(drone.distance_home_m)} m from home`]
+        : []),
+      ...(drone.satellites !== null ? [`${drone.satellites} satellites`] : []),
+    ].join(" · ");
+    const key = `${coordinates}|${details}`;
     if (key !== this.droneContent) {
-      const content = popup("Drone", coordinates, altitude);
+      const content = popup("Drone", coordinates, details);
       if (this.drone.getPopup()) this.drone.setPopupContent(content);
       else this.drone.bindPopup(content);
       this.droneContent = key;
@@ -216,7 +300,10 @@ export class PersonMapController {
   setLayer(layer: MapView) {
     if (layer === this.layer) return;
     this.layer = layer;
-    this.tiles.setUrl(tileUrl(layer));
+    // Leaflet 1.9 redraw uses the fractional map zoom in tile URLs. Reattaching
+    // runs its normal integer tile-zoom setup without changing the viewport.
+    this.tiles.remove();
+    this.tiles.setUrl(tileUrl(layer), true).addTo(this.map);
   }
   placement(clientX?: number, clientY?: number) {
     const rect = this.map.getContainer().getBoundingClientRect();
@@ -247,6 +334,74 @@ export class PersonMapController {
         select,
       );
     this.missionLayer?.render(shapes, selectedId, editing);
+  }
+  async openOfflineMission() {
+    const response = await fetch("/api/offline-mission");
+    const mission = await response.json();
+    const bounds = mission?.bounds;
+    if (
+      !bounds ||
+      ![bounds.south, bounds.north, bounds.west, bounds.east].every(
+        Number.isFinite,
+      )
+    )
+      throw new Error("No prepared mission area found.");
+    this.map.fitBounds(
+      [
+        [bounds.south, bounds.west],
+        [bounds.north, bounds.east],
+      ],
+      { padding: [16, 16], animate: false },
+    );
+  }
+  async saveOfflineArea(progress: (done: number, total: number) => void) {
+    const bounds = this.map.getBounds();
+    const baseZoom = Math.floor(this.map.getZoom());
+    const urls: string[] = [];
+    for (
+      let z = Math.max(0, baseZoom - 1);
+      z <= Math.min(19, baseZoom + 2);
+      z++
+    ) {
+      const nw = this.map
+        .project(bounds.getNorthWest(), z)
+        .divideBy(256)
+        .floor();
+      const se = this.map
+        .project(bounds.getSouthEast(), z)
+        .divideBy(256)
+        .floor();
+      for (let x = nw.x; x <= se.x; x++)
+        for (let y = nw.y; y <= se.y; y++) {
+          const wrappedX = ((x % 2 ** z) + 2 ** z) % 2 ** z;
+          if (y >= 0 && y < 2 ** z)
+            for (const layer of ["topographic", "street", "satellite"] as const)
+              urls.push(`/api/map-tiles/${layer}/${z}/${wrappedX}/${y}`);
+          if (urls.length > 1500)
+            throw new Error("Area too large. Zoom in before saving.");
+        }
+    }
+    let done = 0,
+      failed = 0;
+    progress(done, urls.length);
+    for (let start = 0; start < urls.length; start += 4) {
+      await Promise.all(
+        urls.slice(start, start + 4).map(async (url) => {
+          try {
+            const response = await fetch(url);
+            if (!response.ok) failed++;
+            else await response.arrayBuffer();
+          } catch {
+            failed++;
+          }
+          progress(++done, urls.length);
+        }),
+      );
+    }
+    if (failed)
+      throw new Error(
+        `${urls.length - failed}/${urls.length} tiles saved. Connect to internet and retry for complete coverage.`,
+      );
   }
   resize() {
     this.map.invalidateSize({

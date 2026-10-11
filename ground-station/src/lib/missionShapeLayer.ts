@@ -1,5 +1,10 @@
 import type * as Leaflet from "leaflet";
-import { shapeCoordinates, type PathShape } from "./missionPath";
+import {
+  moveShapePoint,
+  shapeCoordinates,
+  type PathShape,
+} from "./missionPath";
+import { offsetCoordinates } from "./geolocation";
 
 interface ShapeDrawing {
   outline: Leaflet.Circle | Leaflet.Polyline | Leaflet.Polygon;
@@ -54,6 +59,10 @@ export class MissionShapeLayer {
       if (!this.drawings.has(shape.id)) this.createDrawing(shape, number);
       number += shapeCoordinates(shape).length;
       this.updateDrawing(shape);
+      this.drawings.get(shape.id)?.points.forEach((point) => {
+        if (editing) point.dragging?.enable();
+        else point.dragging?.disable();
+      });
     }
     this.updateRoute();
     // Only committed edits rebuild handles; drag previews keep the grabbed marker alive.
@@ -78,14 +87,15 @@ export class MissionShapeLayer {
           ? this.L.polyline(coordinates, options)
           : this.L.polygon(coordinates, options);
     outline.on("click", () => this.select(shape.id)).addTo(this.group);
-    const points = coordinates.map((point) => {
+    const points = coordinates.map((point, index) => {
       const label = document.createElement("span");
       label.className =
         "grid size-5 place-items-center rounded-[2px] border border-[color:var(--color-ink)] bg-[var(--color-ink)] text-[10px] font-bold text-[color:var(--color-paper)]";
       label.textContent = String(++number);
-      return this.L.marker(point, {
-        interactive: false,
-        keyboard: false,
+      const marker = this.L.marker(point, {
+        draggable: true,
+        keyboard: true,
+        title: `Drag waypoint ${number}`,
         icon: this.L.divIcon({
           html: label,
           className: "mission-waypoint",
@@ -93,6 +103,27 @@ export class MissionShapeLayer {
           iconAnchor: [10, 10],
         }),
       }).addTo(this.group);
+      let original: PathShape | null = null;
+      marker.on("click", () => this.select(shape.id));
+      marker.on("dragstart", () => {
+        original = this.shapes.find((item) => item.id === shape.id) ?? null;
+        if (this.selectedId !== shape.id) this.select(shape.id);
+      });
+      const draft = () => {
+        if (!original) return null;
+        const point = marker.getLatLng();
+        return moveShapePoint(original, index, point.lat, point.lng);
+      };
+      marker.on("drag", () => {
+        const next = draft();
+        if (next) this.preview(next, () => {});
+      });
+      marker.on("dragend", () => {
+        const next = draft();
+        original = null;
+        if (next) this.commit(next);
+      });
+      return marker;
     });
     this.drawings.set(shape.id, { outline, points });
   }
@@ -104,6 +135,16 @@ export class MissionShapeLayer {
       p.latitude,
       p.longitude,
     ]);
+    if (shape.vertexOffsets && drawing.outline instanceof this.L.Circle) {
+      this.group.removeLayer(drawing.outline);
+      drawing.outline = this.L.polygon(coordinates, {
+        color: this.ink,
+        fillColor: this.blue,
+      });
+      drawing.outline
+        .on("click", () => this.select(shape.id))
+        .addTo(this.group);
+    }
     if (drawing.outline instanceof this.L.Circle) {
       drawing.outline
         .setLatLng([shape.latitude, shape.longitude])
@@ -124,6 +165,9 @@ export class MissionShapeLayer {
         .reduce((sum, s) => sum + shapeCoordinates(s).length, 0);
       const label = marker.getElement()?.firstElementChild;
       if (label) label.textContent = String(preceding + index + 1);
+      marker
+        .getElement()
+        ?.setAttribute("title", `Drag waypoint ${preceding + index + 1}`);
     });
   }
 
@@ -152,6 +196,14 @@ export class MissionShapeLayer {
     this.animation = null;
   }
 
+  private commit(draft: PathShape) {
+    this.cancelPreview();
+    this.shapes = this.shapes.map((old) => (old.id === draft.id ? draft : old));
+    this.updateDrawing(draft);
+    this.updateRoute();
+    this.change(draft);
+  }
+
   private addHandles(shape: PathShape) {
     const create = (point: [number, number], title: string, symbol: string) => {
       const label = document.createElement("span");
@@ -171,7 +223,13 @@ export class MissionShapeLayer {
       }).addTo(this.handles);
     };
     const corner = (draft: PathShape): [number, number] => {
-      const point = shapeCoordinates({ ...draft, kind: "square" })[1];
+      // Keep the global resize handle outside the editable corners.
+      const point = offsetCoordinates(
+        draft.latitude,
+        draft.longitude,
+        draft.sizeM * 1.35,
+        draft.sizeM * 1.35,
+      );
       return [point.latitude, point.longitude];
     };
     const move = create(
@@ -195,7 +253,7 @@ export class MissionShapeLayer {
         ...shape,
         sizeM: Math.max(
           2,
-          Math.min(500, Math.max(Math.abs(north), Math.abs(east))),
+          Math.min(500, Math.max(Math.abs(north), Math.abs(east)) / 1.35),
         ),
       };
     };
@@ -204,17 +262,8 @@ export class MissionShapeLayer {
       this.preview(draft, () => resize.setLatLng(corner(draft)));
     });
     resize.on("drag", () => this.preview(resized(), () => {}));
-    const commit = (draft: PathShape) => {
-      this.cancelPreview();
-      this.shapes = this.shapes.map((old) =>
-        old.id === draft.id ? draft : old,
-      );
-      this.updateDrawing(draft);
-      this.updateRoute();
-      this.change(draft);
-    };
-    move.on("dragend", () => commit(moved()));
-    resize.on("dragend", () => commit(resized()));
+    move.on("dragend", () => this.commit(moved()));
+    resize.on("dragend", () => this.commit(resized()));
   }
 
   dispose() {

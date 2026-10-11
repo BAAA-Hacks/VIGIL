@@ -1,9 +1,33 @@
 import type { VehicleTelemetry } from "../types/telemetry.ts";
-import type { DetectionResult, ThermalFrame } from "../types/vigil.ts";
+import type {
+  Detection,
+  DetectionResult,
+  ThermalFrame,
+} from "../types/vigil.ts";
 import type { PinData } from "../types/mission.ts";
-import { projectPerson, telemetryAt, wrap, type LocationConfig, type Terrain } from "./geolocation.ts";
+import {
+  offsetCoordinates,
+  projectPerson,
+  validFix,
+  wrap,
+  type LocationConfig,
+  type Terrain,
+} from "./geolocation.ts";
 
 export const LOCATION_STALE_MS = 2000;
+/** Stand-in position for people while the drone has no GPS: every detection is pinned here. */
+export interface FixedLocation {
+  latitude: number;
+  longitude: number;
+  label: string;
+}
+export const UCF_BUSINESS_ADMINISTRATION: FixedLocation = {
+  latitude: 28.6010014, // Business Administration I, UCF (OpenStreetMap)
+  longitude: -81.1991315,
+  label: "UCF Business Administration I",
+};
+/** Spacing between pins at the fixed location, so several people stay distinguishable. */
+const FIXED_PIN_SPACING_M = 4;
 export interface LocationSnapshotInput {
   active: boolean;
   frames: ThermalFrame[];
@@ -16,102 +40,177 @@ export interface LocationSnapshotInput {
   terrain?: Terrain;
   testing: boolean;
   headingFor: (telemetry: VehicleTelemetry) => number | null;
+  /** Used instead of projection whenever there is no fresh telemetry with a valid GPS fix. */
+  fixedLocation?: FixedLocation | null;
 }
-/** Pure capture-time projection; transport and React state are kept outside it. */
-export function locationSnapshot({active, frames, detection, config, history, now, frameReceived, telemetryReceived, terrain, testing, headingFor}: LocationSnapshotInput) {
-    const frame = detection
-      ? (frames.find((f) => f.frame_id === detection.frame_id) ?? null)
-      : (frames.at(-1) ?? null);
-    const current = frame?.frame_id === detection?.frame_id ? detection : null;
-    const pins: PinData[] = [],
-      reasons: string[] = [];
-    const base = {
-      active,
-      frame,
-      detection: current,
-      pins,
-      reasons,
-      telemetry: history.at(-1) ?? null,
-      drone:
-        now - telemetryReceived <= LOCATION_STALE_MS
-          ? (history.at(-1) ?? null)
-          : null,
+
+function personPin(
+  d: Detection,
+  index: number,
+  frame: ThermalFrame,
+  latitude: number,
+  longitude: number,
+  locationNote: string,
+): PinData {
+  return {
+    id: d.track_id ?? `${frame.frame_id}:${index}`,
+    displayLabel: String(index + 1),
+    name: d.track_id ? `Person ${d.track_id}` : `Detection ${index + 1}`,
+    latitude,
+    longitude,
+    coords: `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`,
+    temp:
+      d.temperature_c === undefined
+        ? "Unavailable"
+        : `${d.temperature_c.toFixed(1)} °C`,
+    status: d.temperature_status ?? "unknown",
+    locationNote,
+    capturedAt: frame.timestamp_ms,
+    ...(frame.payload
+      ? {
+          review: {
+            frame: { ...frame },
+            detection: { ...d, bbox_xyxy_norm: [...d.bbox_xyxy_norm] },
+          },
+        }
+      : {}),
+  };
+}
+/** Pure projection using the newest telemetry; transport and React state are kept outside it. */
+export function locationSnapshot({
+  active,
+  frames,
+  detection,
+  config,
+  history,
+  now,
+  frameReceived,
+  telemetryReceived,
+  terrain,
+  testing,
+  headingFor,
+  fixedLocation = null,
+}: LocationSnapshotInput) {
+  const frame = detection
+    ? (frames.find((f) => f.frame_id === detection.frame_id) ?? null)
+    : (frames.at(-1) ?? null);
+  const current = frame?.frame_id === detection?.frame_id ? detection : null;
+  const pins: PinData[] = [],
+    reasons: string[] = [];
+  const base = {
+    active,
+    frame,
+    detection: current,
+    pins,
+    reasons,
+    telemetry: history.at(-1) ?? null,
+    drone:
+      now - telemetryReceived <= LOCATION_STALE_MS
+        ? (history.at(-1) ?? null)
+        : null,
+  };
+  if (!active) return { ...base, message: "" };
+  if (now - frameReceived > LOCATION_STALE_MS)
+    return {
+      ...base,
+      detection: null,
+      message: "Thermal feed stale · locations withheld",
     };
-    if (!active) return { ...base, message: "" };
-    if (now - frameReceived > LOCATION_STALE_MS)
-      return {
-        ...base,
-        detection: null,
-        message: "Thermal feed stale · locations withheld",
-      };
-    if (!config)
-      return {
-        ...base,
-        message:
-          "Location setup required: altitude, heading and camera conventions",
-      };
+  const latest = history.at(-1);
+  const liveFix =
+    latest !== undefined &&
+    now - telemetryReceived <= LOCATION_STALE_MS &&
+    validFix(latest);
+  if (fixedLocation && !testing && !liveFix) {
     if (!frame || !current)
       return { ...base, message: "Waiting for matching frame and detections" };
-    if (frame.width !== 160 || frame.height !== 120)
-      return {
-        ...base,
-        message: "Projection requires the native 160 × 120 image",
-      };
-    if (now - telemetryReceived > LOCATION_STALE_MS)
-      return { ...base, message: "Telemetry stale · locations withheld" };
-    const capture = frame.timestamp_ms + config.frameClockOffsetMs;
-    const t = telemetryAt(history, capture);
-    if (!t || Math.abs((history.at(-1)?.timestamp_ms ?? 0) - capture) > LOCATION_STALE_MS)
-      return { ...base, message: "Waiting for synchronized GPS and attitude" };
-    const heading =
-      t.yaw_deg !== null && config.headingOffsetDeg !== undefined
-        ? wrap(t.yaw_deg + config.headingOffsetDeg)
-        : headingFor(t);
     current.detections
       .filter((d) => d.class === "person" || d.class === "human")
       .forEach((d, index) => {
-        const result =
-          d.feet_visible === false
-            ? { available: false as const, reason: "Feet obscured" }
-            : projectPerson(
-                d.bbox_xyxy_norm,
-                t,
-                heading,
-                config,
-                testing ? undefined : terrain,
-              );
-        if (!result.available) {
-          reasons.push(`Detection ${index + 1}: ${result.reason}`);
-          return;
-        }
-        const id = d.track_id ?? `${frame.frame_id}:${index}`;
-        pins.push({
-          id,
-          displayLabel: String(index + 1),
-          name: d.track_id ? `Person ${d.track_id}` : `Detection ${index + 1}`,
-          latitude: result.latitude,
-          longitude: result.longitude,
-          coords: `${result.latitude.toFixed(6)}, ${result.longitude.toFixed(6)}`,
-          temp:
-            d.temperature_c === undefined
-              ? "Unavailable"
-              : `${d.temperature_c.toFixed(1)} °C`,
-          status: d.temperature_status ?? "unknown",
-          locationNote: `${result.method} · provisional optics / heading`,
-          capturedAt: capture,
-          ...(testing
-            ? { groundElevationM: config.takeoffElevationM }
-            : {}),
-        });
+        const spot = offsetCoordinates(
+          fixedLocation.latitude,
+          fixedLocation.longitude,
+          0,
+          index * FIXED_PIN_SPACING_M,
+        );
+        pins.push(
+          personPin(
+            d,
+            index,
+            frame,
+            spot.latitude,
+            spot.longitude,
+            `Fixed location (no drone GPS) · ${fixedLocation.label}`,
+          ),
+        );
       });
     return {
       ...base,
       message: pins.length
-        ? terrain && !testing
-          ? "Estimated coordinates · local terrain"
-          : "Estimated coordinates · flat reference ground"
-        : reasons.length
-          ? "Locations unavailable"
-          : "No people detected",
+        ? `Fixed location · ${fixedLocation.label}`
+        : "No people detected",
     };
+  }
+  if (!config)
+    return {
+      ...base,
+      message:
+        "Location setup required: altitude, heading and camera conventions",
+    };
+  if (!frame || !current)
+    return { ...base, message: "Waiting for matching frame and detections" };
+  if (frame.width !== 160 || frame.height !== 120)
+    return {
+      ...base,
+      message: "Projection requires the native 160 × 120 image",
+    };
+  if (now - telemetryReceived > LOCATION_STALE_MS)
+    return { ...base, message: "Telemetry stale · locations withheld" };
+  // No camera/telemetry clock sync: pair each frame with the newest telemetry. Both feeds
+  // are fresh (checked above), so the pose is at most LOCATION_STALE_MS old.
+  const t = history.at(-1) ?? null;
+  if (!t || !validFix(t)) return { ...base, message: "Waiting for GPS fix" };
+  const heading =
+    t.yaw_deg !== null && config.headingOffsetDeg !== undefined
+      ? wrap(t.yaw_deg + config.headingOffsetDeg)
+      : headingFor(t);
+  current.detections
+    .filter((d) => d.class === "person" || d.class === "human")
+    .forEach((d, index) => {
+      const result =
+        d.feet_visible === false
+          ? { available: false as const, reason: "Feet obscured" }
+          : projectPerson(
+              d.bbox_xyxy_norm,
+              t,
+              heading,
+              config,
+              testing ? undefined : terrain,
+            );
+      if (!result.available) {
+        reasons.push(`Detection ${index + 1}: ${result.reason}`);
+        return;
+      }
+      pins.push({
+        ...personPin(
+          d,
+          index,
+          frame,
+          result.latitude,
+          result.longitude,
+          `${result.method} · provisional optics / heading`,
+        ),
+        ...(testing ? { groundElevationM: config.takeoffElevationM } : {}),
+      });
+    });
+  return {
+    ...base,
+    message: pins.length
+      ? terrain && !testing
+        ? "Estimated coordinates · local terrain"
+        : "Estimated coordinates · flat reference ground"
+      : reasons.length
+        ? "Locations unavailable"
+        : "No people detected",
+  };
 }

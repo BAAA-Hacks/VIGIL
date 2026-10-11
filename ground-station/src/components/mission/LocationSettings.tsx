@@ -12,7 +12,6 @@ export function LocationSettings({
   const [ground, setGround] = useState("");
   const [mount, setMount] = useState("20");
   const [offset, setOffset] = useState("");
-  const [clock, setClock] = useState("0");
   const [confirmed, setConfirmed] = useState(false);
   const [forward, setForward] = useState(false);
   const [message, setMessage] = useState(
@@ -50,11 +49,14 @@ export function LocationSettings({
           `Reference ground at ${lat.toFixed(5)}, ${lon.toFixed(5)} · USGS`,
         );
       })
-      .catch((error) => {
-        if (!controller.signal.aborted)
-          setMessage(
-            error instanceof Error ? error.message : "Elevation unavailable",
-          );
+      .catch(() => {
+        if (controller.signal.aborted) return;
+        // Offline: altitude is relative to take-off, so on flat ground any constant reference
+        // gives the same estimate. 0 m keeps Apply usable without the elevation service.
+        setGround((value) => value || "0");
+        setMessage(
+          "Elevation offline · using 0 m reference ground (flat-ground estimate)",
+        );
       });
     // The first valid position is fixed for this session, rather than queried every packet.
     // Do not abort on subsequent telemetry updates: that would discard the one-shot lookup.
@@ -63,18 +65,18 @@ export function LocationSettings({
     if (
       !confirmed ||
       !ground ||
-      ![Number(ground), Number(mount), Number(clock)].every(Number.isFinite) ||
+      ![Number(ground), Number(mount)].every(Number.isFinite) ||
       (offset !== "" && !Number.isFinite(Number(offset)))
     ) {
       setMessage("Enter valid values and confirm the conventions");
       return;
     }
     dispatchVigil("locationConfig", {
-      altitudeReference: "absolute",
+      // INAV's CRSF GPS frame carries estimated altitude above home, not sea level.
+      altitudeReference: "takeoff",
       takeoffElevationM: Number(ground),
       startingCameraHeightM: 0,
       mountDownDeg: Number(mount),
-      frameClockOffsetMs: Number(clock),
       nativeImageConfirmed: true,
       attitudeConventionConfirmed: true,
       forwardFlightConfirmed: forward,
@@ -121,20 +123,11 @@ export function LocationSettings({
             onChange={(e) => setOffset(e.target.value)}
           />
         </label>
-        <label>
-          Frame clock offset (ms)
-          <input
-            className={input}
-            type="number"
-            value={clock}
-            onChange={(e) => setClock(e.target.value)}
-          />
-        </label>
       </div>
       <p className="mt-2 leading-relaxed">
-        Altitude is above sea level. Reference ground is held constant for the
-        flat-ground estimate. Verify the altitude and ground elevation use
-        compatible vertical datums.
+        Drone altitude is height above the take-off point (INAV). Reference
+        ground is the take-off elevation, held constant for the flat-ground
+        estimate.
       </p>
       <label className="mt-2 flex items-start gap-2">
         <input
@@ -142,8 +135,8 @@ export function LocationSettings({
           checked={confirmed}
           onChange={(e) => setConfirmed(e.target.checked)}
         />
-        Native 160 × 120 image, synchronized clocks, pitch nose-up and roll
-        right-wing-down confirmed.
+        Native 160 × 120 image, pitch nose-up and roll right-wing-down
+        confirmed.
       </label>
       <label className="mt-2 flex items-start gap-2">
         <input

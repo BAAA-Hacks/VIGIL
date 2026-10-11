@@ -48,8 +48,7 @@ void setup() {
     ESP_LOGE(TAG, "server init failed");
   }
   xTaskCreatePinnedToCore(diagTask, "diag", 4096, nullptr, 1, nullptr, NET_CORE);
-  ESP_LOGI(TAG, "join Wi-Fi '%s' (password '%s') and open http://%s/", AP_SSID, AP_PASSWORD,
-           AP_IP.toString().c_str());
+  ESP_LOGI(TAG, "join Wi-Fi '%s' and open http://%s/", AP_SSID, AP_IP.toString().c_str());
 }
 
 // 1 Hz status line. Runs on core 0 so the capture task on core 1 can't starve it.

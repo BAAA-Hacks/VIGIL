@@ -12,7 +12,33 @@ import {
 
 import { gridTerrain, type TerrainGrid } from "../lib/terrainGrid";
 import { isLocationConfig } from "../lib/locationConfig";
-import { locationSnapshot, LOCATION_STALE_MS } from "../lib/locationSnapshot";
+import {
+  locationSnapshot,
+  LOCATION_STALE_MS,
+  UCF_BUSINESS_ADMINISTRATION,
+  type FixedLocation,
+} from "../lib/locationSnapshot";
+
+/**
+ * Where people are pinned while the drone has no GPS fix. NEXT_PUBLIC_FIXED_PERSON_LOCATION:
+ * unset = UCF Business Administration I, "off" = no pins without GPS, "lat,lon[,label]" = custom.
+ */
+function fixedPersonLocation(): FixedLocation | null {
+  const value = process.env.NEXT_PUBLIC_FIXED_PERSON_LOCATION?.trim();
+  if (!value) return UCF_BUSINESS_ADMINISTRATION;
+  if (value.toLowerCase() === "off") return null;
+  const [lat, lon, ...label] = value.split(",");
+  const latitude = Number(lat),
+    longitude = Number(lon);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude))
+    return UCF_BUSINESS_ADMINISTRATION;
+  return {
+    latitude,
+    longitude,
+    label: label.join(",").trim() || "Fixed location",
+  };
+}
+const FIXED_PERSON_LOCATION = fixedPersonLocation();
 
 /** Live transport adapter. Capture timestamps and session conventions are explicit inputs. */
 export function usePersonLocations(
@@ -30,6 +56,21 @@ export function usePersonLocations(
   const received = useRef(0);
   const telemetryReceived = useRef(0);
   const calibrator = useRef(new CourseHeading());
+  useEffect(() => {
+    let disposed = false;
+    fetch("/api/offline-terrain")
+      .then((response) => response.json())
+      .then((grid) => {
+        if (!disposed && grid) {
+          const sampler = gridTerrain(grid);
+          setTerrain(() => sampler);
+        }
+      })
+      .catch(() => {});
+    return () => {
+      disposed = true;
+    };
+  }, [projectionConfig]);
   const lastTime = useRef(0);
   const ingestRef = useRef<(t: VehicleTelemetry) => void>(() => {});
   useEffect(() => {
@@ -42,10 +83,14 @@ export function usePersonLocations(
         .filter((arrival) => arrival > 0)
         .map((arrival) => arrival + LOCATION_STALE_MS + 1)
         .filter((deadline) => deadline > time);
-      if (deadlines.length) expiry = setTimeout(() => {
-        setNow(Date.now());
-        scheduleExpiry();
-      }, Math.min(...deadlines) - time);
+      if (deadlines.length)
+        expiry = setTimeout(
+          () => {
+            setNow(Date.now());
+            scheduleExpiry();
+          },
+          Math.min(...deadlines) - time,
+        );
     };
     const ingest = (t: VehicleTelemetry) => {
       if (t.timestamp_ms <= lastTime.current) return;
@@ -92,13 +137,12 @@ export function usePersonLocations(
       setHistory([]);
       setFrames([]);
       setDetection(null);
-      setTerrain(undefined);
+
       setConfig(e.detail);
     };
     const terrainEvent = (e: Event) => {
       if (!(e instanceof CustomEvent)) return;
       if (e.detail === null) {
-        setTerrain(undefined);
         return;
       }
       try {
@@ -143,10 +187,31 @@ export function usePersonLocations(
   useEffect(() => {
     if (latest) ingestRef.current(latest);
   }, [latest]);
-  return useMemo(() => locationSnapshot({
-    active, frames, detection, config: projectionConfig, history, now,
-    frameReceived: received.current, telemetryReceived: telemetryReceived.current,
-    terrain, testing: testConfig !== null,
-    headingFor: (telemetry) => calibrator.current.heading(telemetry),
-  }), [active, frames, detection, projectionConfig, history, now, terrain, testConfig]);
+  return useMemo(
+    () =>
+      locationSnapshot({
+        active,
+        frames,
+        detection,
+        config: projectionConfig,
+        history,
+        now,
+        frameReceived: received.current,
+        telemetryReceived: telemetryReceived.current,
+        fixedLocation: FIXED_PERSON_LOCATION,
+        terrain,
+        testing: testConfig !== null,
+        headingFor: (telemetry) => calibrator.current.heading(telemetry),
+      }),
+    [
+      active,
+      frames,
+      detection,
+      projectionConfig,
+      history,
+      now,
+      terrain,
+      testConfig,
+    ],
+  );
 }

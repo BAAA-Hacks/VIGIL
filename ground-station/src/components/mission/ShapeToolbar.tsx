@@ -21,11 +21,8 @@ export function ShapeToolbar({
     <div
       role="group"
       aria-label="Mission shapes"
-      className="flex items-center gap-0.5 border-r border-[color:var(--color-paper)]/20 pr-2"
+      className="flex items-center gap-0.5 border-l border-r border-[color:var(--color-paper)]/20 px-2"
     >
-      <span className="mr-1 text-[10px] text-[color:var(--color-paper)]/65 max-[400px]:sr-only">
-        Route
-      </span>
       <button
         type="button"
         draggable
@@ -40,6 +37,9 @@ export function ShapeToolbar({
       >
         <UserRoundPlus size={17} aria-hidden="true" />
       </button>
+      <span className="ml-1 mr-1 border-l border-[color:var(--color-paper)]/20 pl-2 text-[10px] text-[color:var(--color-paper)]/75">
+        Route
+      </span>
       {SHAPES.map(({ kind, label, Icon }) => (
         <button
           key={kind}

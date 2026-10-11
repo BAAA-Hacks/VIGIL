@@ -12,11 +12,11 @@ function temperatureStatus(value: string): PinData["status"] {
 export const MOCK_PINS: PinData[] = data.people.map((person) => ({
   id: person.id,
   name: person.name,
-  latitude: person.coordinates.latitude,
-  longitude: person.coordinates.longitude,
+  latitude: person.coordinates.latitude - 34.053 + 28.601667,
+  longitude: person.coordinates.longitude + 118.243 - 81.200556,
   coords: formatCoordinates(
-    person.coordinates.latitude,
-    person.coordinates.longitude,
+    person.coordinates.latitude - 34.053 + 28.601667,
+    person.coordinates.longitude + 118.243 - 81.200556,
   ),
   temp: `${((person.temperature_c * 9) / 5 + 32).toFixed(1)}°F`,
   status: temperatureStatus(person.temperature_status),

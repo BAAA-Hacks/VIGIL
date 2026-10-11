@@ -13,3 +13,7 @@ next-env.d.ts
 # Python mission-bridge cache
 __pycache__/
 *.pyc
+
+# Saved mission maps and terrain
+.vigil-offline/
+

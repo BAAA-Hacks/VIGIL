@@ -13,6 +13,8 @@ export interface PathShape {
   latitude: number;
   longitude: number;
   sizeM: number;
+  /** Local north/east offsets, in multiples of sizeM; preserves edits when moving/resizing. */
+  vertexOffsets?: [number, number][];
 }
 export interface MissionWaypoint {
   latitude: number;
@@ -26,8 +28,9 @@ export interface PathMission {
   finish: "hold";
 }
 
-export function shapeCoordinates(shape: PathShape) {
-  const r = shape.sizeM;
+function vertexOffsets(shape: PathShape): [number, number][] {
+  if (shape.vertexOffsets) return shape.vertexOffsets;
+  const r = 1;
   const offsets: [number, number][] =
     shape.kind === "square"
       ? [
@@ -48,11 +51,60 @@ export function shapeCoordinates(shape: PathShape) {
               number,
             ];
           });
-  return offsets.map(([north, east]) =>
-    offsetCoordinates(shape.latitude, shape.longitude, north, east),
+  return offsets;
+}
+
+export function shapeCoordinates(shape: PathShape) {
+  return vertexOffsets(shape).map(([north, east]) =>
+    offsetCoordinates(
+      shape.latitude,
+      shape.longitude,
+      north * shape.sizeM,
+      east * shape.sizeM,
+    ),
   );
 }
 
+/** Edit one waypoint without moving its neighbors; shares the WGS84 offset transform. */
+export function moveShapePoint(
+  shape: PathShape,
+  index: number,
+  latitude: number,
+  longitude: number,
+): PathShape {
+  if (
+    !Number.isInteger(index) ||
+    index < 0 ||
+    index >= SHAPE_POINTS[shape.kind] ||
+    !Number.isFinite(latitude) ||
+    Math.abs(latitude) >= 85 ||
+    !Number.isFinite(longitude) ||
+    Math.abs(longitude) > 180 ||
+    !Number.isFinite(shape.sizeM) ||
+    shape.sizeM <= 0
+  ) {
+    throw new Error("Invalid waypoint position");
+  }
+  const northUnit =
+    offsetCoordinates(shape.latitude, shape.longitude, 1, 0).latitude -
+    shape.latitude;
+  const eastPoint = offsetCoordinates(
+    shape.latitude,
+    shape.longitude,
+    0,
+    1,
+  ).longitude;
+  const longitudeDelta = (value: number) =>
+    ((value - shape.longitude + 540) % 360) - 180;
+  const points = vertexOffsets(shape).map((point): [number, number] => [
+    ...point,
+  ]);
+  points[index] = [
+    (latitude - shape.latitude) / northUnit / shape.sizeM,
+    longitudeDelta(longitude) / longitudeDelta(eastPoint) / shape.sizeM,
+  ];
+  return { ...shape, vertexOffsets: points };
+}
 export function createPathMission(
   shapes: PathShape[],
   altitudeM: number,

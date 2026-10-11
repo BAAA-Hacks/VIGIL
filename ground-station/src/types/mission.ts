@@ -1,4 +1,6 @@
+import type { Detection, ThermalFrame } from "./vigil";
 export interface PinData {
+  review?: { frame: ThermalFrame; detection: Detection };
   manual?: boolean;
   elevationState?: "loading" | "unavailable";
   displayLabel?: string;

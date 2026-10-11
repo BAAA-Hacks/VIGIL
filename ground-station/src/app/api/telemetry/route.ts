@@ -12,6 +12,17 @@ export async function GET(request: Request) {
     process.cwd(),
     "../flight-controller/ground/telemetry_bridge.py",
   );
+  // TELEMETRY_SERIAL_PORT (the Pocket's USB serial device) selects live drone telemetry and
+  // records the raw CRSF bytes; without it the bridge runs its synthetic mission.
+  const port = process.env.TELEMETRY_SERIAL_PORT;
+  const recording = path.resolve(
+    path.dirname(script),
+    "recordings",
+    `flight_${new Date().toISOString().replace(/[:.]/g, "-")}.crsf`,
+  );
+  const source = port
+    ? ["--port", port, "--record", recording]
+    : ["--synthetic"];
   const encoder = new TextEncoder();
   let stop = () => {};
   const stream = new ReadableStream({
@@ -19,7 +30,7 @@ export async function GET(request: Request) {
       const child = spawn(
         /* turbopackIgnore: true */
         process.env.PYTHON_EXECUTABLE || "python",
-        [script, "--synthetic", "--relative-yaw"],
+        [script, ...source, "--relative-yaw"],
         // stderr is inherited: an unread pipe would fill up and stall the bridge.
         {
           cwd: path.dirname(script),

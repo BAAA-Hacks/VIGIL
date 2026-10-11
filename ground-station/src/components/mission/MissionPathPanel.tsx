@@ -7,8 +7,11 @@ export function MissionPathPanel({ planner }: { planner: Planner }) {
   const input =
     "mt-1.5 min-h-8 min-w-0 w-full rounded-[4px] border border-[color:var(--color-ink)]/20 bg-[var(--color-paper)] px-2 py-1.5 text-xs font-normal tabular-nums outline-none transition-colors focus:border-[color:var(--color-ink)] focus:ring-2 focus:ring-[var(--color-blue)]/40";
   return (
-    <details className="group absolute top-2 left-2 z-[1100] max-h-[calc(100%-48px)] w-fit max-w-[calc(100%-16px)] overflow-y-auto rounded-[4px] open:static open:order-first open:h-full open:max-h-none open:w-full open:max-w-none open:rounded-none open:shadow-none border border-[color:var(--color-ink)]/25 bg-[var(--color-paper)] text-xs text-[color:var(--color-ink)] shadow-[0_4px_16px_color-mix(in_srgb,_var(--color-ink)_18%,_transparent)]">
-      <summary className="cursor-pointer bg-[var(--color-ink)] px-3 py-2.5 font-medium text-[color:var(--color-paper)] marker:text-[color:var(--color-blue)]">
+    <details
+      data-mission-path
+      className="group absolute top-2 left-2 z-[1100] max-h-[calc(100%-48px)] w-fit max-w-[calc(100%-16px)] overflow-y-auto rounded-[4px] open:static open:order-first open:h-full open:max-h-none open:w-full open:max-w-none open:rounded-none open:shadow-none border border-[color:var(--color-ink)]/25 bg-[var(--color-paper)] text-xs text-[color:var(--color-ink)] shadow-[0_4px_16px_color-mix(in_srgb,_var(--color-ink)_18%,_transparent)]"
+    >
+      <summary className="sticky top-0 z-10 cursor-pointer bg-[var(--color-ink)] px-3 py-2.5 font-medium text-[color:var(--color-paper)] marker:text-[color:var(--color-blue)]">
         Auton pathing{" "}
         <span className="ml-2 rounded-[3px] bg-[var(--color-paper)]/15 px-2 py-1 text-[10px] font-normal tabular-nums">
           {planner.count} points
