@@ -7,9 +7,14 @@ export interface ThermalFrame {
   height: number;
   pixel_format?: string;
   payload?: string;
+  /** Coldest / hottest apparent temperature in the frame, when the camera is radiometric. */
+  scene_min_c?: number;
+  scene_max_c?: number;
 }
 export interface Detection {
   track_id?: string;
+  /** Display name shared with the person's pin, e.g. "Person 2". */
+  label?: string;
   feet_visible?: boolean;
   temperature_c?: number;
   temperature_status?: "normal" | "elevated" | "low";

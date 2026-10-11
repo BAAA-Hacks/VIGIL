@@ -47,9 +47,17 @@ export class PersonMemory {
         previous?.review !== undefined &&
         confidence(pin) < PHOTO_MIN_CONFIDENCE &&
         confidence(previous) >= confidence(pin);
+      const review = keepPhoto ? previous!.review : pin.review;
       this.people.set(pin.id, {
         ...pin,
-        ...(keepPhoto ? { review: previous!.review } : {}),
+        ...(review
+          ? {
+              review: {
+                ...review,
+                detection: { ...review.detection, label: `Person ${number}` },
+              },
+            }
+          : {}),
         displayLabel: String(number),
         name: `Person ${number}`,
         lastSeenAt: pin.capturedAt ?? now,

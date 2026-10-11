@@ -23,7 +23,7 @@ export function TestDataToggle({
           type="button"
           onClick={replay.toggle}
           aria-pressed={replay.paused}
-          title="Pause or resume the recorded flight replay"
+          title="Pause or resume the recorded flight replay (Space)"
           className="rounded-[3px] border border-[color:var(--color-ink)]/25 bg-[var(--color-paper)]/94 px-2 py-[5px] text-[10px] text-[color:var(--color-ink)]/70 hover:text-[color:var(--color-ink)]"
         >
           {replay.paused ? "Resume replay" : "Pause replay"}

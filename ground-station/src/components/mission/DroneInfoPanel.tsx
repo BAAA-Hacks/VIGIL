@@ -64,7 +64,16 @@ export function DroneInfoPanel({
   return (
     <MissionPanel
       title="Drone Info"
-      meta={<span>{stale ? "Telemetry stale" : state}</span>}
+      meta={
+        <span className="flex items-center gap-1.5">
+          {telemetry?.source === "replay-track" && (
+            <span className="rounded-[3px] bg-[var(--color-yellow)] px-1.5 py-0.5 text-[10px] font-bold text-[color:var(--color-ink)]">
+              Reconstructed flight
+            </span>
+          )}
+          {stale ? "Telemetry stale" : state}
+        </span>
+      }
     >
       <div className="grid grid-cols-2 gap-x-5 gap-y-3 px-[18px] py-3 md:grid-cols-4">
         {summaryLabels.map(reading)}

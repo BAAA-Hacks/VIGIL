@@ -14,7 +14,9 @@ export function DetectionOverlay({ detection }: { detection: Detection }) {
     >
       {/* Sized by the box: full label, confidence only, or none in tiny views. */}
       <span className="absolute -left-0.5 -top-6 whitespace-nowrap bg-[var(--color-yellow)] px-[7px] py-[5px] text-[10px] font-bold text-[color:var(--color-ink)] @max-[40px]:hidden">
-        <span className="@max-[90px]:hidden">{detection.class} · </span>
+        <span className="@max-[90px]:hidden">
+          {detection.label ?? detection.class} ·{" "}
+        </span>
         {Math.round(detection.confidence * 100)}%
       </span>
       <i className="absolute -left-[3px] -top-[3px] size-[9px] border-l-[3px] border-t-[3px] border-[color:var(--color-pink)]" />

@@ -36,6 +36,10 @@ export function thermalFrame(value: unknown): ThermalFrame | null {
     !/^data:image\/png;base64,[A-Za-z0-9+/]+={0,2}$/.test(value.image_data_url)
   )
     return null;
+  const scene =
+    finite(value.scene_min_c) && finite(value.scene_max_c)
+      ? { scene_min_c: value.scene_min_c, scene_max_c: value.scene_max_c }
+      : {};
   return {
     frame_id: value.frame_id,
     timestamp_ms: value.capture_timestamp_ms,
@@ -43,6 +47,7 @@ export function thermalFrame(value: unknown): ThermalFrame | null {
     height: 120,
     pixel_format: "encoded-image",
     payload: value.image_data_url,
+    ...scene,
   };
 }
 

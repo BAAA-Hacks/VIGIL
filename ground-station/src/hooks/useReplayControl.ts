@@ -1,9 +1,9 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 const POLL_MS = 2000;
 
-/** Pause/resume for ./replay.sh. `available` is false unless a replay is running. */
+/** Pause/resume for ./replay.sh (button or Space). `available` is false unless a replay is running. */
 export function useReplayControl() {
   const [available, setAvailable] = useState(false);
   const [paused, setPaused] = useState(false);
@@ -26,6 +26,28 @@ export function useReplayControl() {
       clearInterval(timer);
     };
   }, []);
+  const toggleRef = useRef<() => void>(() => {});
+  useEffect(() => {
+    if (!available) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (
+        event.code !== "Space" ||
+        event.repeat ||
+        event.ctrlKey ||
+        event.metaKey ||
+        event.altKey
+      )
+        return;
+      const target = event.target as HTMLElement | null;
+      // Leave Space alone where it types or activates something.
+      if (target?.closest("input, textarea, select, button, [contenteditable]"))
+        return;
+      event.preventDefault();
+      toggleRef.current();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [available]);
   async function toggle() {
     const next = !paused;
     setPaused(next);
@@ -43,5 +65,6 @@ export function useReplayControl() {
       setPaused(!next);
     }
   }
+  toggleRef.current = toggle;
   return { available, paused, toggle };
 }

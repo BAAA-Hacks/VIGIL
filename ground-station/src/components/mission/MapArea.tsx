@@ -2,6 +2,7 @@
 import { useState } from "react";
 import { ArrowLeftRight } from "lucide-react";
 import { ThermalImage } from "./ThermalImage";
+import { CameraStatus } from "./CameraStatus";
 import { PersonMap } from "./PersonMap";
 import { ViewerPane } from "./ViewerPane";
 import { MapViewSelect, type MapView } from "./MapViewSelect";
@@ -12,6 +13,10 @@ interface MapAreaProps {
   frame?: import("../../types/vigil").ThermalFrame | null;
   detection?: import("../../types/vigil").DetectionResult | null;
   live?: boolean;
+  /** ./replay.sh is running. */
+  replay?: boolean;
+  fps?: number | null;
+  feedMessage?: string;
   pins: PinData[];
   focusedPin: PinData | null;
   focusRevision: number;
@@ -66,14 +71,25 @@ export function MapArea(props: MapAreaProps) {
         onRestore={() => setCornerMinimized(false)}
         onPromote={swap}
       >
-        <ThermalImage
-          frame={props.frame ?? null}
-          detection={props.detection ?? null}
-          demo={!props.live}
-          palette="white"
-          presentation="viewer"
-          hasPerson
-        />
+        <div className="relative size-full">
+          <ThermalImage
+            frame={props.frame ?? null}
+            detection={props.detection ?? null}
+            demo={!props.live}
+            palette="white"
+            presentation="viewer"
+            hasPerson
+          />
+          {props.live && (
+            <CameraStatus
+              frame={props.frame ?? null}
+              detection={props.detection ?? null}
+              fps={props.fps ?? null}
+              feedMessage={props.feedMessage ?? ""}
+              replay={props.replay ?? false}
+            />
+          )}
+        </div>
       </ViewerPane>
     </section>
   );

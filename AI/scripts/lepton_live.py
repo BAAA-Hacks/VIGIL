@@ -845,6 +845,11 @@ def main() -> None:
                             "width": frame.width,
                             "height": frame.height,
                             "image_data_url": png_data_url(image),
+                            # Scene range for the dashboard's status strip (TLinear kelvin x 100).
+                            "scene_min_c": round(frame.raw_min / 100.0 - 273.15, 1)
+                            if frame.flags & TLINEAR_FLAG else None,
+                            "scene_max_c": round(frame.raw_max / 100.0 - 273.15, 1)
+                            if frame.flags & TLINEAR_FLAG else None,
                         },
                     )
                     sink.publish(

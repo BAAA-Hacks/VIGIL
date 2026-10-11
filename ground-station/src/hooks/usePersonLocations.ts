@@ -228,10 +228,23 @@ export function usePersonLocations(
     const detected = (snapshot.detection?.detections ?? []).flatMap((d) =>
       d.track_id !== undefined ? [d.track_id] : [],
     );
-    return {
-      ...snapshot,
-      pins: memory.current.update(snapshot.pins, now, detected),
+    const pins = memory.current.update(snapshot.pins, now, detected);
+    // Boxes in the thermal view carry the same "Person N" as their pin.
+    const labelled = snapshot.detection && {
+      ...snapshot.detection,
+      detections: snapshot.detection.detections.map((d) =>
+        d.track_id !== undefined
+          ? { ...d, label: `Person ${memory.current.numberFor(d.track_id)}` }
+          : d,
+      ),
     };
+    // Camera frame rate over the buffered frames (arrival times on this computer).
+    const span =
+      frames.length > 1
+        ? frames[frames.length - 1].timestamp_ms - frames[0].timestamp_ms
+        : 0;
+    const fps = span > 0 ? ((frames.length - 1) * 1000) / span : null;
+    return { ...snapshot, detection: labelled, pins, fps };
   }, [
     active,
     frames,

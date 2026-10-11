@@ -117,6 +117,9 @@ export function MissionDashboard() {
             frame={locations.frame}
             detection={locations.detection}
             live={locations.active}
+            replay={replay.available}
+            fps={locations.fps}
+            feedMessage={thermal.message}
             focusedPin={
               (focusedPin && pins.find((p) => p.id === focusedPin.id)) || null
             }
