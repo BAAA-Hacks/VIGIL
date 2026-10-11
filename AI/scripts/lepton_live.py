@@ -12,7 +12,7 @@ import sys
 import threading
 import time
 from collections import deque
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import BinaryIO, Iterable, Protocol
 from urllib.error import HTTPError, URLError
@@ -139,6 +139,22 @@ def latest_lepton_frames(camera_url: str, timeout: float) -> Iterable[tuple[Lept
         except Exception:
             pass
         thread.join(timeout=timeout)
+
+
+FLIPS = {
+    "none": lambda pixels: pixels,
+    "180": lambda pixels: pixels[::-1, ::-1],      # camera mounted upside down
+    "horizontal": lambda pixels: pixels[:, ::-1],  # mirror left/right
+    "vertical": lambda pixels: pixels[::-1, :],
+}
+
+
+def flip_frame(frame: LeptonFrame, flip: str) -> LeptonFrame:
+    """Orient the frame before anything else uses it, so detection, temperatures, the
+    published image and the recording all share upright image coordinates."""
+    if flip == "none":
+        return frame
+    return replace(frame, pixels=np.ascontiguousarray(FLIPS[flip](frame.pixels)))
 
 
 def normalize_frame(frame: LeptonFrame) -> np.ndarray:
@@ -548,6 +564,11 @@ def parse_args() -> argparse.Namespace:
         default=Path("AI/checkpoints/thermal_medium_range_yolo26s_p2_closeup_blur_best.pt"),
     )
     parser.add_argument("--camera-url", default="http://192.168.4.1")
+    parser.add_argument(
+        "--flip", choices=sorted(FLIPS), default="180",
+        help="Image orientation fix. Default 180: the camera is mounted upside down on the drone; "
+             "use 'none' for an upright camera",
+    )
     parser.add_argument("--socket-url", help="Website Socket.IO URL; omit for JSON-lines stdout")
     parser.add_argument("--socket-namespace", default=None)
     parser.add_argument("--frame-event", default="vigil:frame")
@@ -661,6 +682,7 @@ def main() -> None:
                 log.info("Connecting to camera %s/raw", args.camera_url.rstrip("/"))
                 first = True
                 for frame, arrival_ms in latest_lepton_frames(args.camera_url, args.connect_timeout):
+                    frame = flip_frame(frame, args.flip)
                     if first:
                         log.info("Camera streaming (first frame id %d, TLinear=%s)",
                                  frame.camera_frame_id, bool(frame.flags & TLINEAR_FLAG))

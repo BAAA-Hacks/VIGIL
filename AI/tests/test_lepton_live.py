@@ -11,6 +11,7 @@ from AI.scripts.lepton_live import (
     LeptonFrame,
     center_temperature_c,
     feet_visible,
+    flip_frame,
     hottest_temperature_c,
     normalize_frame,
     read_frame,
@@ -25,6 +26,13 @@ class LeptonLiveTests(unittest.TestCase):
         self.assertEqual(frame.camera_frame_id, 42)
         self.assertEqual(frame.pixels.shape, (120, 160))
         np.testing.assert_array_equal(frame.pixels, pixels)
+
+    def test_flip_180_puts_the_top_left_pixel_bottom_right(self) -> None:
+        pixels = np.array([[1, 2, 3], [4, 5, 6]], dtype=np.uint16)
+        frame = LeptonFrame(1, 1, 3, 2, 1, 6, 1, pixels)
+        np.testing.assert_array_equal(flip_frame(frame, "180").pixels, [[6, 5, 4], [3, 2, 1]])
+        np.testing.assert_array_equal(flip_frame(frame, "horizontal").pixels, [[3, 2, 1], [6, 5, 4]])
+        self.assertIs(flip_frame(frame, "none"), frame)
 
     def test_normalization_uses_frame_minimum_and_maximum(self) -> None:
         pixels = np.array([[100, 150, 200]], dtype=np.uint16)

@@ -19,7 +19,9 @@ Lepton 3.5 -> XIAO ESP32-S3 (Wi-Fi AP "Lepton-Camera", flir-lepton/) -> AI/scrip
   -> Socket.IO relay (ground-station: npm run thermal:relay) -> website (npm run dev, :5173)
 ```
 
-- Run: `python -m AI.scripts.lepton_live --socket-url http://127.0.0.1:5000`. Every session is
+- Run everything (relay, website, detector) with `./start.sh` from the repo root; Ctrl+C stops all.
+  The detector alone: `python -m AI.scripts.lepton_live --socket-url http://127.0.0.1:5000`.
+  Frames are rotated 180° by default (camera mounted upside down on the drone); `--flip none` for an upright camera. Every session is
   recorded to `AI/recordings/session_*` (raw.lep, frames, detections.jsonl, annotated.mp4).
 - Models, both in `AI/checkpoints/` and both used by default:
   - near: `thermal_medium_range_yolo26s_p2_closeup_blur_best.pt` (P2 head, fine-tuned on
