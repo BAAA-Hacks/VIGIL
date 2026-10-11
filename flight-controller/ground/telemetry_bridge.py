@@ -130,7 +130,8 @@ class TelemetryState:
             "battery_v": round(battery.voltage_v, 2) if battery_present else None,
             "pcb_temp_c": pcb_temp,
             "roll_deg": None if attitude is None else round(attitude.roll_deg, 1),
-            "pitch_deg": None if attitude is None else round(attitude.pitch_deg, 1),
+            # INAV sends pitch positive nose-down; the VehicleTelemetry contract is nose-up positive.
+            "pitch_deg": None if attitude is None else round(-attitude.pitch_deg, 1),
             "yaw_deg": None,
             "altitude_m": None if gps is None else gps.altitude_m,
             "lat": gps.lat if fix_valid else None,
@@ -267,8 +268,9 @@ class SyntheticSource:
         self._roll_deg += max(-step, min(step, target_roll - self._roll_deg))
         pitch, roll = self._pitch_deg, self._roll_deg
         yaw = (s["yaw"] + 180.0) % 360.0 - 180.0  # INAV sends -180..180
+        # pitch above is nose-up positive (the published contract); INAV puts nose-down positive on the wire.
         att = crsf.build_frame(crsf.ATTITUDE, b"".join(
-            int(round(math.radians(a) * 10000)).to_bytes(2, "big", signed=True) for a in (pitch, roll, yaw)))
+            int(round(math.radians(a) * 10000)).to_bytes(2, "big", signed=True) for a in (-pitch, roll, yaw)))
 
         # Battery: 4S at rest 16.6 V, sags under load and drains while armed. No current sensor.
         volts = 16.6 - 0.012 * s["armed_s"] - (0.5 if s["armed"] else 0.0)

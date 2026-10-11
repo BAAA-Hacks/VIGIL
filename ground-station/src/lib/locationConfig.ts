@@ -9,7 +9,6 @@ export function isLocationConfig(value: unknown): value is LocationConfig {
     (c.altitudeReference === "takeoff" || c.altitudeReference === "absolute") &&
     finite("startingCameraHeightM") &&
     finite("mountDownDeg") &&
-    finite("frameClockOffsetMs") &&
     typeof c.nativeImageConfirmed === "boolean" &&
     typeof c.attitudeConventionConfirmed === "boolean" &&
     typeof c.forwardFlightConfirmed === "boolean" &&
@@ -18,4 +17,3 @@ export function isLocationConfig(value: unknown): value is LocationConfig {
     )
   );
 }
-

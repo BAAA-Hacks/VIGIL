@@ -102,18 +102,19 @@ The current packet has one temperature value and a status. It does not describe 
 
 ## Capture timing and drone inputs
 
-Use the **capture time**, not the time detection finishes or the packet reaches the laptop. Camera and drone timestamps need a shared clock, or a measured camera-to-telemetry clock offset in the location settings.
+There is no camera/telemetry clock sync. Each frame is paired with the newest telemetry packet, and locations are withheld when either feed is more than 2 seconds stale. The pose can therefore lag the image by the link latency, which adds position error while the drone moves or turns.
 
-The current matcher accepts an exact telemetry timestamp or interpolates between two telemetry packets no more than 500 ms apart. It does not extrapolate. Frame or telemetry arrival gaps longer than 2 seconds withhold person locations. Frames are buffered by ID, so detections may arrive after their image, within the bounded buffer and timing checks.
+Frames are buffered by ID, so detections may arrive after their image, within the bounded buffer.
 
 The drone separately supplies:
 
 - Valid, fresh latitude and longitude, with `fix_valid: true` and a connected link.
-- `altitude_m` above sea level, as confirmed for this project. Subtract compatible ground elevation to obtain clearance; do not add terrain elevation to an already absolute altitude.
+- `altitude_m` above home (take-off point), as INAV sends it over CRSF. Camera elevation is take-off ground elevation plus `altitude_m`.
+- `pitch_deg` positive nose-up. INAV sends nose-down positive; the telemetry bridge negates it.
 - Roll, pitch, and yaw at capture time, using the confirmed attitude conventions.
 - A north-referenced heading, or the information needed to establish the offset from relative yaw. Relative yaw alone does not provide north. GPS course calibration is accepted only during confirmed steady forward flight with sufficient motion.
 
-Location settings also supply the forward-facing camera mount angle, currently **20° down from horizontal**, image/attitude convention confirmation, clock offset, and ground elevation. The current optical model is provisional; measured camera intrinsics would improve it. Correct packets do not by themselves validate real-world location accuracy.
+Location settings also supply the forward-facing camera mount angle, currently **20° down from horizontal**, image/attitude convention confirmation, and ground elevation. The current optical model is provisional; measured camera intrinsics would improve it. Correct packets do not by themselves validate real-world location accuracy.
 
 ## Current browser integration
 
@@ -139,7 +140,6 @@ Drone telemetry is received separately through the telemetry adapter or `vigil:t
 ## Items the camera/detection team still needs to decide
 
 - The Wi-Fi transport and receiver/decoder implementation.
-- How the camera capture clock is synchronized with drone telemetry.
 - How feet visibility and stable tracking IDs are determined.
 - Which radiometric measurement is reported and how its status is assigned.
 - Whether camera intrinsics and distortion calibration will replace the provisional projection model.

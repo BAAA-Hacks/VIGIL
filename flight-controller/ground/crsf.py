@@ -88,6 +88,7 @@ class Battery:
 
 @dataclass
 class Attitude:
+    """INAV convention, as sent: pitch positive = nose DOWN (see INAV osd.c), roll positive = right wing down."""
     pitch_deg: float
     roll_deg: float
     yaw_deg: float

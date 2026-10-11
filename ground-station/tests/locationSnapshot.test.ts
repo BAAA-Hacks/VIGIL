@@ -24,7 +24,7 @@ function inputs(): LocationSnapshotInput {
   };
 }
 
-test("ten person locations and the drone share synchronized test inputs", () => {
+test("ten person locations and the drone share the test inputs", () => {
   const result = locationSnapshot(inputs());
   assert.equal(result.pins.length, 10);
   assert.ok(result.drone);
@@ -125,4 +125,19 @@ test("synthetic test pins and drone stay near UCF", () => {
     assert.ok(Math.abs(pin.latitude - 28.601667) < 0.03);
     assert.ok(Math.abs(pin.longitude + 81.200556) < 0.035);
   }
+});
+
+test("frames pair with the newest telemetry without a shared clock", () => {
+  const input = inputs();
+  input.frames = [{ ...input.frames[0], timestamp_ms: 987654321 }];
+  const result = locationSnapshot(input);
+  assert.equal(result.pins.length, 10);
+});
+
+test("an invalid GPS fix withholds pins", () => {
+  const input = inputs();
+  input.history = [{ ...input.history[0], fix_valid: false }];
+  const result = locationSnapshot(input);
+  assert.equal(result.pins.length, 0);
+  assert.match(result.message, /GPS fix/);
 });

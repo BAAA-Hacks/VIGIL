@@ -3,7 +3,7 @@
 Firmware that reads a FLIR Lepton 3.5 over VoSPI and streams it over Wi-Fi from a standalone
 access point. No router or internet needed.
 
-- **AP:** `Lepton-Camera`, password `lepton1234`, camera at `http://192.168.4.1/`
+- **AP:** `Lepton-Camera`, camera at `http://192.168.4.1/`. The password is set in `include/secrets.h` (gitignored); copy `include/secrets.example.h` to create it before the first build.
 - **Driver:** vendored and patched from [ducky64/arduino-lepton](https://github.com/ducky64/arduino-lepton)
   (`lib/arduino-lepton/`, changes listed in `PATCHES.md`). JPEG encoding uses
   [JPEGENC](https://github.com/bitbank2/JPEGENC).

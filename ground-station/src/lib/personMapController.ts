@@ -190,7 +190,7 @@ export class PersonMapController {
     const altitude =
       drone.altitude_m === null
         ? "Altitude unavailable"
-        : `${drone.altitude_m.toFixed(1)} m above sea level`;
+        : `${drone.altitude_m.toFixed(1)} m above home`;
     const key = `${coordinates}|${altitude}`;
     if (key !== this.droneContent) {
       const content = popup("Drone", coordinates, altitude);

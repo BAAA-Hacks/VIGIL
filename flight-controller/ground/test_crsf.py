@@ -62,6 +62,13 @@ class CrcAndFraming(unittest.TestCase):
 
 
 class Decoding(unittest.TestCase):
+    def test_inav_nose_down_pitch_is_published_as_negative(self):
+        st = TelemetryState()
+        st.update(crsf.decode(crsf.ATTITUDE, attitude_payload(10.0, 5.0, 0.0)), 1.0)  # INAV: 10 deg nose down
+        snap = st.snapshot(1.0)
+        self.assertAlmostEqual(snap["pitch_deg"], -10.0, places=1)
+        self.assertAlmostEqual(snap["roll_deg"], 5.0, places=1)
+
     def test_battery(self):
         b = crsf.decode(crsf.BATTERY, battery_payload(15.2, 12.3, 1234, 77))
         self.assertAlmostEqual(b.voltage_v, 15.2)

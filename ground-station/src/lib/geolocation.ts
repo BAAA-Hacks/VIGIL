@@ -10,8 +10,6 @@ export interface LocationConfig {
   takeoffElevationM?: number;
   startingCameraHeightM: number;
   mountDownDeg: number;
-  /** Capture timestamps + this offset must equal the telemetry clock. */
-  frameClockOffsetMs: number;
   /** Confirmed raw sensor image: no crop, mirror, rotation or letterboxing. */
   nativeImageConfirmed: boolean;
   /** FRD/NED, pitch nose-up, roll right-wing-down, yaw clockwise. */
@@ -125,11 +123,9 @@ export function projectPerson(
   if (box[0] <= 0 || box[1] <= 0 || box[2] >= 1 || box[3] >= 0.99)
     return unavailable("Ground contact clipped");
   if (
-    ![
-      config.startingCameraHeightM,
-      config.mountDownDeg,
-      config.frameClockOffsetMs,
-    ].every(Number.isFinite) ||
+    ![config.startingCameraHeightM, config.mountDownDeg].every(
+      Number.isFinite,
+    ) ||
     config.startingCameraHeightM < 0 ||
     config.mountDownDeg < 0 ||
     config.mountDownDeg > 90

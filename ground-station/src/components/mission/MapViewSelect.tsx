@@ -32,6 +32,3 @@ export function MapViewSelect({ value, onChange }: MapViewSelectProps) {
     </div>
   );
 }
-
-
-

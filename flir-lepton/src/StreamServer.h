@@ -52,6 +52,7 @@ private:
   void serveCaptures(const FrameInfo& info);
   void serveRaw(const uint8_t* rawFrame, const FrameInfo& info, uint32_t nowMs);
   void dropClient(Client& client, const char* kind);
+  void dropDeadClients(Client* clients, size_t count, const char* kind);
 
   ImageSettings getSettings(uint32_t* versionOut);
 

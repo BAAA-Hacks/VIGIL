@@ -9,6 +9,6 @@ export const CAMERA_CONFIG = {
   mountDownFromHorizontalDeg: 20,
   facing: "forward",
   fNumber: 1.1,
-  altitudeReference: "sea-level",
+  altitudeReference: "home",
   headingReference: "relative-unresolved",
 } as const;

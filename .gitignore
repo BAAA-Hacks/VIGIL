@@ -460,3 +460,6 @@ next-env.d.ts
 # Live session recordings (lepton_live --record)
 AI/recordings/
 *.zip
+
+# Raw CRSF flight telemetry recorded by the ground station
+flight-controller/ground/recordings/*.crsf

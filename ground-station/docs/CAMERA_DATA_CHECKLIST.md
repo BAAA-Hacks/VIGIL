@@ -2,7 +2,7 @@ For each thermal frame, send:
 
 - **Thermal image:** native 160 × 120, without cropping, rotation, or mirroring.
 - **Frame ID:** unique per capture.
-- **Capture timestamp:** synchronized with drone telemetry.
+- **Capture timestamp:** arrival time on the ground computer (no clock sync with telemetry).
 
 For each detected person, send:
 
