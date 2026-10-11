@@ -17,6 +17,8 @@ import cv2
 
 try:
     from AI.scripts.lepton_live import (
+        MergedDetector,
+        TrackGate,
         TrackHold,
         model_person_class,
         normalize_frame,
@@ -27,6 +29,8 @@ try:
     from AI.scripts.model_utils import load_model, parse_device
 except ModuleNotFoundError:
     from AI.scripts.lepton_live import (  # type: ignore
+        MergedDetector,
+        TrackGate,
         TrackHold,
         model_person_class,
         normalize_frame,
@@ -43,8 +47,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--weights", nargs="+", type=Path, required=True)
     parser.add_argument("--device", default="0")
     parser.add_argument("--conf", type=float, default=0.30)
-    parser.add_argument("--keep-conf", type=float, default=0.10)
-    parser.add_argument("--hold-frames", type=int, default=4)
+    parser.add_argument("--keep-conf", type=float, default=0.15)
+    parser.add_argument("--hold-frames", type=int, default=2)
+    parser.add_argument("--min-hits", type=int, default=3)
+    parser.add_argument("--far-weights", default="none", help="Merge this far-range model with each --weights")
     parser.add_argument("--max-person-temp-c", type=float, default=42.0)
     parser.add_argument("--output", type=Path, help="Write per-frame results as JSON")
     return parser.parse_args()
@@ -62,18 +68,21 @@ def load_raw(path: Path) -> list:
 
 
 def replay(weights: Path, frames: list, args) -> list[list[dict]]:
-    model = load_model(weights.expanduser().resolve())
-    person_class = model_person_class(model, "person")
+    models = [load_model(weights.expanduser().resolve())]
+    if str(args.far_weights).lower() != "none":
+        models.append(load_model(Path(args.far_weights).expanduser().resolve()))
+    person_classes = [model_person_class(model, "person") for model in models]
     tracker = tracker_config("bytetrack.yaml", args.conf, args.keep_conf, 30, Path(tempfile.mkdtemp()))
+    detector = MergedDetector(models, person_classes, tracker, 640, 0.7, parse_device(args.device))
     hold = TrackHold(args.hold_frames)
-    device = parse_device(args.device)
+    track_gate = TrackGate(args.min_hits)
+    person_class = person_classes[0]
     outputs = []
     for frame in frames:
         image = cv2.cvtColor(normalize_frame(frame), cv2.COLOR_GRAY2BGR)
-        result = model.track(source=image, persist=True, tracker=tracker, imgsz=640, conf=args.keep_conf,
-                             iou=0.7, device=device, verbose=False)[0]
+        result = detector(image, args.keep_conf)
         gate = args.max_person_temp_c if args.max_person_temp_c >= 0 else None
-        outputs.append(hold.apply(result_people(result, person_class, frame, 0.01, gate)))
+        outputs.append(track_gate.apply(hold.apply(result_people(result, person_class, frame, 0.01, gate))))
     return outputs
 
 
@@ -89,6 +98,9 @@ def summarize(people_per_frame: list[list[dict]]) -> dict:
         "episodes": episodes,
         "blinks": blinks,
         "held_frames": sum(any(p["held"] for p in people) for people in people_per_frame),
+        "frames_with_far_person": sum(
+            any(p["bbox"][3] - p["bbox"][1] < 0.35 for p in people if not p["held"]) for people in people_per_frame
+        ),
         "tracks": len({p["tracking_id"] for people in people_per_frame for p in people if p["tracking_id"] is not None}),
         "mean_conf_when_on": round(sum(c for c in confident if c) / max(1, sum(1 for c in confident if c)), 3),
     }

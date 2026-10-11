@@ -221,6 +221,154 @@ def tracker_config(path: str, start_conf: float, keep_conf: float, buffer: int, 
     return str(output)
 
 
+def _overlap(a: list[float], b: list[float]) -> tuple[float, float]:
+    """(intersection over the smaller box, intersection over union)."""
+    ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+    iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+    inter = ix * iy
+    area_a = max(1e-9, (a[2] - a[0]) * (a[3] - a[1]))
+    area_b = max(1e-9, (b[2] - b[0]) * (b[3] - b[1]))
+    return inter / min(area_a, area_b), inter / (area_a + area_b - inter)
+
+
+def _area(box: list[float]) -> float:
+    return max(1e-9, (box[2] - box[0]) * (box[3] - box[1]))
+
+
+def suppress_contained(rows: list[list[float]], threshold: float, min_conf: float = 0.3,
+                       group_span: float = 0.7) -> list[list[float]]:
+    """Remove group boxes, then nested part boxes (keeping the whole person).
+
+    A box is a group box when it holds two or more confident, mutually separate boxes that
+    together span >= group_span of its width (people side by side); the group box goes.
+    Head and torso part boxes inside one person are separate too but span only part of
+    the width, so they do not trigger this. Then, largest first, a box with >= threshold
+    of its area inside a kept box is a part box and goes.
+    """
+    def is_group(outer: list[float]) -> bool:
+        inner = [r for r in rows if r is not outer and r[4] >= min_conf
+                 and _area(r) < _area(outer) and _overlap(outer, r)[0] >= threshold]
+        separate = [(a, b) for k, a in enumerate(inner) for b in inner[k + 1:] if _overlap(a, b)[1] < 0.3]
+        width = outer[2] - outer[0]
+        return any((max(a[2], b[2]) - min(a[0], b[0])) >= group_span * width for a, b in separate)
+
+    rows = [r for r in rows if not is_group(r)]
+    kept: list[list[float]] = []
+    for row in sorted(rows, key=lambda r: -_area(r)):
+        if all(_overlap(row, other)[0] < threshold for other in kept):
+            kept.append(row)
+    return kept
+
+
+class MergedDetector:
+    """Run a near-range and an optional far-range model, merge their boxes, track the union.
+
+    Neither model covers every distance: the close-up model misses people beyond a few
+    metres and the drone model hallucinates small "distant people" on skin and clothing up
+    close. Far-model boxes shorter than `near_height` of the frame are dropped when their
+    centre lies inside a tall box from either model (a distant person cannot be inside a
+    near one), then class-agnostic NMS merges the rest before one ByteTrack instance.
+    Finally any box lying mostly inside a more confident one is dropped: YOLO26 is NMS-free
+    and, at the low keep threshold, emits nested torso/part boxes on the same person, which
+    IoU-based NMS cannot remove because a part box has low IoU with the whole.
+    """
+
+    def __init__(self, models: list, person_classes: list[int], tracker_yaml: str, imgsz: int, iou: float,
+                 device, near_height: float = 0.35, merge_iou: float = 0.45, contain: float = 0.8) -> None:
+        import yaml
+        from ultralytics.trackers.byte_tracker import BYTETracker
+        from ultralytics.utils import IterableSimpleNamespace
+
+        self.models = models
+        self.person_classes = person_classes
+        self.imgsz, self.iou, self.device = imgsz, iou, device
+        self.near_height, self.merge_iou, self.contain = near_height, merge_iou, contain
+        config = yaml.safe_load(Path(tracker_yaml).read_text(encoding="utf-8"))
+        self.tracker = BYTETracker(IterableSimpleNamespace(**config))
+
+    def __call__(self, image: np.ndarray, conf: float):
+        import torch
+        import torchvision
+        from types import SimpleNamespace
+
+        from ultralytics.engine.results import Boxes
+
+        height, width = image.shape[:2]
+        rows: list[list[float]] = []
+        sources: list[int] = []
+        for source, (model, person_class) in enumerate(zip(self.models, self.person_classes, strict=True)):
+            result = model.predict(image, imgsz=self.imgsz, conf=conf, iou=self.iou, device=self.device,
+                                   verbose=False)[0]
+            if result.boxes is None:
+                continue
+            for xyxy, score, cls in zip(result.boxes.xyxy.tolist(), result.boxes.conf.tolist(),
+                                        result.boxes.cls.tolist(), strict=True):
+                if int(cls) == person_class:
+                    rows.append([*xyxy, float(score)])
+                    sources.append(source)
+        if len(self.models) > 1 and rows:
+            tall = [r for r in rows if (r[3] - r[1]) >= self.near_height * height]
+            margin = 0.02 * width
+
+            def contained(r: list[float]) -> bool:
+                cx, cy = (r[0] + r[2]) / 2, (r[1] + r[3]) / 2
+                return any(t[0] - margin <= cx <= t[2] + margin and t[1] - margin <= cy <= t[3] + margin
+                           for t in tall if t is not r)
+
+            keep = [i for i, r in enumerate(rows)
+                    if sources[i] == 0 or (r[3] - r[1]) >= self.near_height * height or not contained(r)]
+            rows = [rows[i] for i in keep]
+        if rows:
+            boxes = torch.tensor([r[:4] for r in rows], dtype=torch.float32)
+            scores = torch.tensor([r[4] for r in rows], dtype=torch.float32)
+            rows = [rows[i] for i in torchvision.ops.nms(boxes, scores, self.merge_iou).tolist()]
+            rows = suppress_contained(rows, self.contain)
+        data = torch.tensor([[*r[:4], r[4], self.person_classes[0]] for r in rows], dtype=torch.float32).reshape(-1, 6)
+        tracks = self.tracker.update(Boxes(data, (height, width)).cpu().numpy(), image)
+        tracks = np.asarray(tracks)[:, :7] if len(tracks) else np.zeros((0, 7))
+        # Two live tracks can settle on one person (e.g. started by different models); keep the
+        # more confident one. Columns: x1, y1, x2, y2, track_id, score, cls.
+        def duplicate(a: np.ndarray, b: np.ndarray) -> bool:
+            inside, iou = _overlap(list(a[:4]), list(b[:4]))
+            return inside >= self.contain or iou >= self.merge_iou
+
+        kept: list[np.ndarray] = []
+        for track in sorted(tracks, key=lambda t: -t[5]):
+            if not any(duplicate(track, other) for other in kept):
+                kept.append(track)
+        tracked = torch.as_tensor(np.array(kept) if kept else np.zeros((0, 7)), dtype=torch.float32)
+        return SimpleNamespace(boxes=Boxes(tracked, (height, width)), orig_shape=(height, width))
+
+
+class TrackGate:
+    """Only publish a track once it has been detected in `min_hits` frames.
+
+    Flicker from clutter and partial views rarely survives several frames, while a real
+    person does; the cost is min_hits frames of delay (~0.1 s each) before a new person shows.
+    """
+
+    def __init__(self, min_hits: int) -> None:
+        self.min_hits = min_hits
+        self.hits: dict[int, int] = {}
+
+    def reset(self) -> None:
+        self.hits.clear()
+
+    def apply(self, people: list[dict]) -> list[dict]:
+        if self.min_hits <= 1:
+            return people
+        output = []
+        for person in people:
+            track = person.get("tracking_id")
+            if track is None:
+                continue
+            if not person.get("held"):
+                self.hits[track] = self.hits.get(track, 0) + 1
+            if self.hits.get(track, 0) >= self.min_hits:
+                output.append(person)
+        return output
+
+
 class JsonLineSink:
     def publish(self, event: str, payload: object) -> None:
         print(json.dumps({"event": event, "payload": payload}, separators=(",", ":")), flush=True)
@@ -365,10 +513,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--keep-conf",
         type=float,
-        default=0.10,
+        default=0.15,
         help="Weaker detections that overlap an existing track keep it alive (ByteTrack second stage)",
     )
-    parser.add_argument("--hold-frames", type=int, default=4, help="Frames to re-emit a vanished track (0 = off)")
+    parser.add_argument("--hold-frames", type=int, default=2, help="Frames to re-emit a vanished track (0 = off)")
+    parser.add_argument("--min-hits", type=int, default=3, help="Frames a new track must be seen before it is shown")
+    parser.add_argument(
+        "--far-weights",
+        default="AI/checkpoints/thermal_medium_range_yolo26s_p2_best.pt",
+        help="Second model for distant people, merged with --weights each frame; 'none' disables",
+    )
     parser.add_argument("--track-buffer", type=int, default=30, help="Frames ByteTrack remembers a lost track")
     parser.add_argument(
         "--max-person-temp-c",
@@ -417,7 +571,16 @@ def main() -> None:
     log.info("Loading model %s", weights)
     model = load_model(weights)
     person_class = model_person_class(model, args.person_class)
-    recorder.write_config(environment_info(weights, model, args.device))
+    models, person_classes = [model], [person_class]
+    if str(args.far_weights).lower() != "none":
+        far_weights = Path(args.far_weights).expanduser().resolve()
+        log.info("Loading far-range model %s", far_weights)
+        far_model = load_model(far_weights)
+        models.append(far_model)
+        person_classes.append(model_person_class(far_model, args.person_class))
+    info = environment_info(weights, model, args.device)
+    info["far_weights"] = str(args.far_weights)
+    recorder.write_config(info)
     sink: EventSink = (
         SocketIOSink(args.socket_url, args.socket_namespace, recorder) if args.socket_url else JsonLineSink()
     )
@@ -428,6 +591,7 @@ def main() -> None:
     last_camera_frame: int | None = None
     temporal = TemporalBuffer(args.temporal_step, args.temporal_align)
     hold = TrackHold(args.hold_frames)
+    gate = TrackGate(args.min_hits)
     if not 0 <= args.keep_conf <= args.conf:
         raise SystemExit("--keep-conf must be between 0 and --conf")
     import tempfile
@@ -438,6 +602,7 @@ def main() -> None:
     )
     log.info("Tracker: %s (start>=%.2f keep>=%.2f buffer=%d hold=%d frames)",
              tracker_path, args.conf, args.keep_conf, args.track_buffer, args.hold_frames)
+    detector = MergedDetector(models, person_classes, tracker_path, args.imgsz, args.iou, parse_device(args.device))
     try:
         while args.max_frames is None or published < args.max_frames:
             try:
@@ -468,24 +633,14 @@ def main() -> None:
                     model_input = temporal.model_input(image)
 
                     started = time.perf_counter()
-                    results = model.track(
-                        source=model_input,
-                        persist=True,
-                        tracker=tracker_path,
-                        imgsz=args.imgsz,
-                        conf=args.keep_conf,
-                        iou=args.iou,
-                        device=parse_device(args.device),
-                        verbose=False,
-                    )
+                    result = detector(model_input, args.keep_conf)
                     processing_ms = round((time.perf_counter() - started) * 1000.0, 3)
-                    result = results[0]
-                    people = hold.apply(
+                    people = gate.apply(hold.apply(
                         result_people(
                             result, person_class, frame, args.feet_edge_margin,
                             args.max_person_temp_c if args.max_person_temp_c >= 0 else None,
                         )
-                    )
+                    ))
 
                     common = {
                         "frame_id": frame_id,

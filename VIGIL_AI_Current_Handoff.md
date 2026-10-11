@@ -9,12 +9,38 @@ spatial detail (160×120). Operational priorities are high person-presence preci
 stable detection over time, not only strict bounding-box localization. Evaluation must be
 video-disjoint and include per-video and temporal metrics.
 
-## Repository and environment
+## Current state (live system)
+
+Everything from "Source dataset discovery" onward is the history of the WiSARD training work
+(on the old `thermal-recognition` branch). The live system now runs on `main`:
+
+```text
+Lepton 3.5 -> XIAO ESP32-S3 (Wi-Fi AP "Lepton-Camera", flir-lepton/) -> AI/scripts/lepton_live.py
+  -> Socket.IO relay (ground-station: npm run thermal:relay) -> website (npm run dev, :5173)
+```
+
+- Run: `python -m AI.scripts.lepton_live --socket-url http://127.0.0.1:5000`. Every session is
+  recorded to `AI/recordings/session_*` (raw.lep, frames, detections.jsonl, annotated.mp4).
+- Models, both in `AI/checkpoints/` and both used by default:
+  - near: `thermal_medium_range_yolo26s_p2_closeup_blur_best.pt` (P2 head, fine-tuned on
+    OpenThermalPose2 close-ups with Lepton-like blur/noise; `--weights`)
+  - far: `thermal_medium_range_yolo26s_p2_best.pt` (`--far-weights none` disables)
+  - The two are merged per frame (`MergedDetector`) with NMS and part/group-box suppression.
+- Post-processing: ByteTrack (start 0.30 / keep 0.15), 2-frame hold for lost tracks, a track
+  is only shown after 3 hits (`--min-hits`), and boxes hotter than 42 °C are dropped (PCB shorts, lamps).
+- Offline tuning: `python -m AI.scripts.replay_session AI/recordings/<session> --weights <near>
+  --far-weights <far>` replays a recording through the same pipeline; `AI/scripts/fake_lepton.py`
+  serves a recording as a fake camera for website demos without hardware.
+- Known issues: the `lepton_fold_0*` runs have train/val leakage; pseudo-labels from
+  `pseudo_label_session.py` were unreliable and are not used in training. All live tests so far
+  were indoors under ~10 m; no in-flight footage yet.
+- Website geolocation pairs each frame with the newest telemetry (no camera/telemetry clock
+  sync), so the pose can be up to ~2 s old; real-world accuracy has not been measured.
+- The Lepton Wi-Fi password is in the gitignored `flir-lepton/include/secrets.h`.
+
+## Environment
 
 - Repository: `/home/agnco/PyTorch/Workspace/VIGIL`
-- Branch: `thermal-recognition`
-- Current commit: `1c3eee4` (`import and preprocessing changes`)
-- Worktree was clean when this handoff was written.
 - Virtual environment Python: `/home/agnco/PyTorch/bin/python`
 - Python 3.12.3
 - Ultralytics 8.4.175
@@ -312,7 +338,7 @@ python -m AI.scripts.train \
 
 ## Tests
 
-Last complete test run passed 18 tests:
+Last complete test run (2026-10-10) passed 37 tests:
 
 ```bash
 /home/agnco/PyTorch/bin/python -m unittest discover -s AI/tests -v
