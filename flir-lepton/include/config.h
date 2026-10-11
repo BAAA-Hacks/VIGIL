@@ -36,8 +36,12 @@ constexpr size_t FRAME_PIXELS = FRAME_WIDTH * FRAME_HEIGHT;
 constexpr size_t FRAME_BYTES = FRAME_PIXELS * 2;
 
 // Wi-Fi access point
-constexpr const char* AP_SSID = "Lepton-Camera";
-constexpr const char* AP_PASSWORD = "lepton1234";
+// SSID and password live in the untracked secrets.h (copy secrets.example.h; password >= 8 chars).
+#if __has_include("secrets.h")
+#include "secrets.h"
+#else
+#error "Missing include/secrets.h: copy include/secrets.example.h to include/secrets.h and set the password"
+#endif
 constexpr uint8_t AP_CHANNEL = 6;
 constexpr uint8_t AP_MAX_STATIONS = 4;
 const IPAddress AP_IP(192, 168, 4, 1);
