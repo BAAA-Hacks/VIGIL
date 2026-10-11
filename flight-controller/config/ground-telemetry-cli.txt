@@ -1,5 +1,5 @@
 # version
-# INAV/REDSTART 7.1.2 Oct 11 2026 / 05:46:19 (66671da3)
+# INAV/REDSTART 7.1.2 Oct 11 2026 / 06:26:18 (e0b71c6d)
 # GCC-10.3.1 20210824 (release)
 
 # start the command batch
@@ -79,7 +79,7 @@ set setpoint_kalman_q = 200
 set gyro_zero_x = 15
 set gyro_zero_y = -26
 set gyro_zero_z = -9
-set ins_gravity_cmss =  982.217
+set ins_gravity_cmss =  980.623
 set acc_hardware = LSM6DXX
 set acczero_x = 17
 set acczero_y = -31
@@ -87,8 +87,14 @@ set acczero_z = 5
 set accgain_x = 4089
 set accgain_y = 4058
 set accgain_z = 4095
-set align_mag = CW270FLIP
+set align_mag = CW0
 set mag_hardware = LIS3MDL
+set magzero_x = -301
+set magzero_y = -87
+set magzero_z = -144
+set maggain_x = 708
+set maggain_y = 724
+set maggain_z = 799
 set baro_hardware = BMP581
 set min_check = 1050
 set blackbox_rate_denom = 2
