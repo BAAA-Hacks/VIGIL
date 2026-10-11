@@ -43,10 +43,12 @@ export function ThermalImage({
               : "mx-5 aspect-[4/3] min-[1500px]:mx-auto min-[1500px]:max-h-[510px] min-[1500px]:w-[680px] min-[1500px]:max-w-[calc(100%-40px)] max-[550px]:mx-3"
       }`}
     >
+      {/* The boxes are positioned in % of this element, so it must be exactly the 4:3 image:
+          one width rule only (a competing w-full would stretch it to the screen's shape). */}
       <div
         className={
           presentation === "viewer"
-            ? "absolute left-1/2 top-1/2 aspect-[4/3] w-full max-h-full -translate-x-1/2 -translate-y-1/2 [width:min(100%,calc(100cqh*4/3))]"
+            ? "absolute left-1/2 top-1/2 aspect-[4/3] -translate-x-1/2 -translate-y-1/2 [width:min(100%,calc(100cqh*4/3))]"
             : "size-full"
         }
       >
