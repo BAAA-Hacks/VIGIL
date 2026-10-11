@@ -12,7 +12,33 @@ import {
 
 import { gridTerrain, type TerrainGrid } from "../lib/terrainGrid";
 import { isLocationConfig } from "../lib/locationConfig";
-import { locationSnapshot, LOCATION_STALE_MS } from "../lib/locationSnapshot";
+import {
+  locationSnapshot,
+  LOCATION_STALE_MS,
+  UCF_BUSINESS_ADMINISTRATION,
+  type FixedLocation,
+} from "../lib/locationSnapshot";
+
+/**
+ * Where people are pinned while the drone has no GPS fix. NEXT_PUBLIC_FIXED_PERSON_LOCATION:
+ * unset = UCF Business Administration I, "off" = no pins without GPS, "lat,lon[,label]" = custom.
+ */
+function fixedPersonLocation(): FixedLocation | null {
+  const value = process.env.NEXT_PUBLIC_FIXED_PERSON_LOCATION?.trim();
+  if (!value) return UCF_BUSINESS_ADMINISTRATION;
+  if (value.toLowerCase() === "off") return null;
+  const [lat, lon, ...label] = value.split(",");
+  const latitude = Number(lat),
+    longitude = Number(lon);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude))
+    return UCF_BUSINESS_ADMINISTRATION;
+  return {
+    latitude,
+    longitude,
+    label: label.join(",").trim() || "Fixed location",
+  };
+}
+const FIXED_PERSON_LOCATION = fixedPersonLocation();
 
 /** Live transport adapter. Capture timestamps and session conventions are explicit inputs. */
 export function usePersonLocations(
@@ -172,6 +198,7 @@ export function usePersonLocations(
         now,
         frameReceived: received.current,
         telemetryReceived: telemetryReceived.current,
+        fixedLocation: FIXED_PERSON_LOCATION,
         terrain,
         testing: testConfig !== null,
         headingFor: (telemetry) => calibrator.current.heading(telemetry),

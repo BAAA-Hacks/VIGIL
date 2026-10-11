@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   locationSnapshot,
   LOCATION_STALE_MS,
+  UCF_BUSINESS_ADMINISTRATION,
   type LocationSnapshotInput,
 } from "../src/lib/locationSnapshot.ts";
 import { createPinTestSample, PIN_TEST_CONFIG } from "../src/lib/pinTest.ts";
@@ -140,4 +141,36 @@ test("an invalid GPS fix withholds pins", () => {
   const result = locationSnapshot(input);
   assert.equal(result.pins.length, 0);
   assert.match(result.message, /GPS fix/);
+});
+
+test("without a GPS fix, people are pinned at the fixed location", () => {
+  const input = inputs();
+  input.testing = false;
+  input.config = null;
+  input.history = [];
+  input.telemetryReceived = 0;
+  input.fixedLocation = UCF_BUSINESS_ADMINISTRATION;
+  const result = locationSnapshot(input);
+  assert.equal(result.pins.length, 10);
+  assert.ok(
+    Math.abs(result.pins[0].latitude - UCF_BUSINESS_ADMINISTRATION.latitude) <
+      1e-9,
+  );
+  assert.ok(
+    Math.abs(result.pins[0].longitude - UCF_BUSINESS_ADMINISTRATION.longitude) <
+      1e-9,
+  );
+  assert.equal(new Set(result.pins.map((pin) => pin.longitude)).size, 10);
+  assert.match(result.pins[0].locationNote ?? "", /Fixed location/);
+  assert.match(result.message, /Fixed location/);
+});
+
+test("a live GPS fix overrides the fixed location", () => {
+  const input = inputs();
+  input.testing = false;
+  input.fixedLocation = UCF_BUSINESS_ADMINISTRATION;
+  const result = locationSnapshot(input);
+  assert.ok(
+    result.pins.every((pin) => !/Fixed location/.test(pin.locationNote ?? "")),
+  );
 });
