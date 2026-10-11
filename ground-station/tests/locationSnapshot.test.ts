@@ -220,3 +220,20 @@ test("a true-north yaw (reconstructed track) is used as the heading without an o
   // Facing east, people are east of the drone, not north.
   assert.ok(east.pins.every((p) => p.longitude > drone.lon!));
 });
+
+test("a magnetic yaw is corrected by the declination to true north", () => {
+  const input = inputs();
+  input.config = { ...input.config!, headingOffsetDeg: undefined };
+  input.headingFor = () => null;
+  input.history = [
+    { ...input.history[0], yaw_deg: 6.8, yaw_reference: "magnetic" },
+  ];
+  const magnetic = locationSnapshot(input);
+  input.history = [{ ...input.history[0], yaw_deg: 0, yaw_reference: "north" }];
+  const north = locationSnapshot(input);
+  assert.ok(magnetic.pins.length > 0);
+  magnetic.pins.forEach((pin, i) => {
+    assert.ok(Math.abs(pin.latitude - north.pins[i].latitude) < 1e-9);
+    assert.ok(Math.abs(pin.longitude - north.pins[i].longitude) < 1e-9);
+  });
+});

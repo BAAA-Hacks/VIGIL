@@ -15,6 +15,9 @@ import {
 } from "./geolocation.ts";
 
 export const LOCATION_STALE_MS = 2000;
+/** True north = magnetic + declination. Orlando, 2026: about 6.8° west. A Location settings
+ * heading offset, when entered, replaces it. */
+export const MAGNETIC_DECLINATION_DEG = -6.8;
 /** Stand-in position for people while the drone has no GPS: every detection is pinned here. */
 export interface FixedLocation {
   latitude: number;
@@ -183,9 +186,13 @@ export function locationSnapshot({
   const heading =
     t.yaw_deg !== null && t.yaw_reference === "north"
       ? wrap(t.yaw_deg)
-      : t.yaw_deg !== null && config.headingOffsetDeg !== undefined
-        ? wrap(t.yaw_deg + config.headingOffsetDeg)
-        : headingFor(t);
+      : t.yaw_deg !== null && t.yaw_reference === "magnetic"
+        ? wrap(
+            t.yaw_deg + (config.headingOffsetDeg ?? MAGNETIC_DECLINATION_DEG),
+          )
+        : t.yaw_deg !== null && config.headingOffsetDeg !== undefined
+          ? wrap(t.yaw_deg + config.headingOffsetDeg)
+          : headingFor(t);
   current.detections
     .filter((d) => d.class === "person" || d.class === "human")
     .forEach((d, index) => {
