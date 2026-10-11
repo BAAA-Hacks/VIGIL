@@ -69,7 +69,8 @@ export function LocationSettings({
       return;
     }
     dispatchVigil("locationConfig", {
-      altitudeReference: "absolute",
+      // INAV's CRSF GPS frame carries estimated altitude above home, not sea level.
+      altitudeReference: "takeoff",
       takeoffElevationM: Number(ground),
       startingCameraHeightM: 0,
       mountDownDeg: Number(mount),
@@ -121,9 +122,9 @@ export function LocationSettings({
         </label>
       </div>
       <p className="mt-2 leading-relaxed">
-        Altitude is above sea level. Reference ground is held constant for the
-        flat-ground estimate. Verify the altitude and ground elevation use
-        compatible vertical datums.
+        Drone altitude is height above the take-off point (INAV). Reference
+        ground is the take-off elevation, held constant for the flat-ground
+        estimate.
       </p>
       <label className="mt-2 flex items-start gap-2">
         <input
@@ -131,8 +132,8 @@ export function LocationSettings({
           checked={confirmed}
           onChange={(e) => setConfirmed(e.target.checked)}
         />
-        Native 160 × 120 image, pitch nose-up and roll
-        right-wing-down confirmed.
+        Native 160 × 120 image, pitch nose-up and roll right-wing-down
+        confirmed.
       </label>
       <label className="mt-2 flex items-start gap-2">
         <input

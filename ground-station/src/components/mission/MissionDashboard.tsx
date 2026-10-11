@@ -147,6 +147,7 @@ export function MissionDashboard() {
       </main>
       <TestDataToggle
         enabled={vehicle.enabled}
+        source={vehicle.data?.source ?? null}
         onToggle={() => {
           pinTest.stop();
           vehicle.toggleTestData();

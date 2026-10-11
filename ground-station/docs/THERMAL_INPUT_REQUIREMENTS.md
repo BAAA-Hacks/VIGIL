@@ -109,7 +109,8 @@ Frames are buffered by ID, so detections may arrive after their image, within th
 The drone separately supplies:
 
 - Valid, fresh latitude and longitude, with `fix_valid: true` and a connected link.
-- `altitude_m` above sea level, as confirmed for this project. Subtract compatible ground elevation to obtain clearance; do not add terrain elevation to an already absolute altitude.
+- `altitude_m` above home (take-off point), as INAV sends it over CRSF. Camera elevation is take-off ground elevation plus `altitude_m`.
+- `pitch_deg` positive nose-up. INAV sends nose-down positive; the telemetry bridge negates it.
 - Roll, pitch, and yaw at capture time, using the confirmed attitude conventions.
 - A north-referenced heading, or the information needed to establish the offset from relative yaw. Relative yaw alone does not provide north. GPS course calibration is accepted only during confirmed steady forward flight with sufficient motion.
 
