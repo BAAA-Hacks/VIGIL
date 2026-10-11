@@ -133,7 +133,11 @@ export class PersonMapController {
           : pin.elevationState === "loading"
             ? "Ground elevation looking up…"
             : "Ground elevation unavailable"
-        : `${pin.temp} · ${TEMPERATURE_STATUS[pin.status].label}${
+        : `${pin.temp}${
+            TEMPERATURE_STATUS[pin.status].label
+              ? ` · ${TEMPERATURE_STATUS[pin.status].label}`
+              : ""
+          }${
             pin.inView === false && pin.lastSeenAt !== undefined
               ? ` · not in view, last seen ${new Date(pin.lastSeenAt).toLocaleTimeString()}`
               : ""

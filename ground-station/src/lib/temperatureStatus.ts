@@ -12,7 +12,7 @@ export const TEMPERATURE_STATUS: Record<
   TemperaturePresentation
 > = {
   unknown: {
-    label: "Temperature status unavailable",
+    label: "",
     pinClass: "bg-[var(--color-ink)]/6 text-[color:var(--color-ink)]/80",
     markerClass:
       "border-[color:var(--color-ink)]/60 bg-[var(--color-paper)] text-[color:var(--color-ink)]",

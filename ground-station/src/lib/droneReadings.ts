@@ -43,9 +43,8 @@ export function getDroneReadings(
     data?.armed == null ? "Unknown" : data.armed ? "Armed" : "Disarmed";
 
   return [
-    { label: "Battery", value: formatNumber(data?.battery_v, "V") },
     {
-      label: "Altitude (sea level)",
+      label: "Altitude (above home)",
       value: formatNumber(data?.altitude_m, "m"),
     },
     {

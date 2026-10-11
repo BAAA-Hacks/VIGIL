@@ -15,10 +15,9 @@ interface DroneInfoProps {
 const summaryLabels = [
   "Arming / mode",
   "Flight time",
-  "Altitude (sea level)",
+  "Altitude (above home)",
   "Ground speed",
   "Distance from home",
-  "Battery",
 ];
 
 export function DroneInfoPanel({

@@ -2,7 +2,8 @@
 # Demo without hardware: replay a recorded session through the real detector into the website.
 # Start ./web.sh first. Loops until Ctrl+C. Nothing is recorded.
 #
-#   ./replay.sh                      the airborne flight (session 20261011_013730, frames 1160-1380)
+#   ./replay.sh                      the airborne flight (session 20261011_013730, frames 1120-1400:
+#                                    tracked with dropouts, then ~2.5 s undetected so the pin sticks)
 #   ./replay.sh full                 that whole session, ground handling included
 #   ./replay.sh <session> [start end] any session in AI/recordings, optionally a frame range
 #
@@ -14,7 +15,7 @@ PYTHON="${PYTHON:-$(command -v python || command -v python3 || true)}"
 [ -n "$PYTHON" ] && [ -x "$PYTHON" ] || { echo "[replay.sh] no python found; set PYTHON=/path/to/python" >&2; exit 1; }
 PORT="${FAKE_CAMERA_PORT:-8090}"
 
-session=session_20261011_013730 start=1160 end=1380
+session=session_20261011_013730 start=1120 end=1400
 case "${1:-}" in
   "") ;;
   full) start=0 end="" ;;

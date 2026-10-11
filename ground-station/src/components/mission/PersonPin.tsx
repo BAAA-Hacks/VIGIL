@@ -148,7 +148,7 @@ export function PersonPin({
                 Last seen {new Date(pin.lastSeenAt).toLocaleTimeString()}
               </span>
             )}
-            {!pin.manual && pin.status !== "normal" && (
+            {!pin.manual && temperature.label && pin.status !== "normal" && (
               <span
                 className={"mt-1 block text-[10px] " + temperature.textClass}
               >
