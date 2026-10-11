@@ -6,7 +6,7 @@ Frame layout: [address][length][type][payload ...][crc8]
 All multi-byte fields are big-endian.
 
 Payload formats follow INAV 7.1.2 src/main/telemetry/crsf.c, our firmware patch
-0010 (baro altitude 0x09 plus the Redstart IMU 0x88 and magnetometer 0x89 frames)
+0010 (baro altitude 0x09 plus the Redstart sensors frame 0x88: IMU and magnetometer)
 and the ExpressLRS link-statistics frame. Extended frames (type >= 0x28) start
 their payload with destination and origin addresses.
 """
@@ -27,8 +27,10 @@ LINK_STATISTICS = 0x14
 RC_CHANNELS = 0x16
 ATTITUDE = 0x1E
 FLIGHT_MODE = 0x21
-REDSTART_IMU = 0x88   # extended: dest, origin, then accel xyz (milli-g), gyro xyz (0.1 deg/s), int16 each
-REDSTART_MAG = 0x89   # extended: dest, origin, field xyz (int16 counts), heading (uint16, 0.1 deg), flags (uint8)
+# Extended frame: dest, origin, then int16 accel xyz (milli-g), gyro xyz (0.1 deg/s), mag xyz (counts),
+# uint16 heading (0.1 deg), uint8 flags (bit 0 mag healthy, bit 1 mag calibrated). One frame because
+# ELRS buffers only one extended frame at a time; separate IMU/mag frames overwrote each other.
+REDSTART_SENSORS = 0x88
 
 # Addresses that can start a frame (FC, radio, receiver, TX module, broadcast/sync)
 ADDRESSES = {0x00, 0xC8, 0xEA, 0xEC, 0xEE}
@@ -129,8 +131,15 @@ class Imu:
 @dataclass
 class Mag:
     field_counts: tuple[int, int, int]   # INAV calibrated sensor counts, not a physical unit
-    heading_deg: float                   # INAV attitude yaw; magnetic north when healthy
-    healthy: bool
+    heading_deg: float                   # INAV attitude yaw; magnetic north only when healthy and calibrated
+    healthy: bool                        # detected and reading
+    calibrated: bool                     # INAV's compass calibration is done
+
+
+@dataclass
+class Sensors:
+    imu: Imu
+    mag: Optional[Mag]                   # None when the drone has no magnetometer
 
 
 @dataclass
@@ -150,7 +159,7 @@ class LinkStats:
     downlink_snr_db: int
 
 
-Decoded = Union[Battery, Attitude, Gps, Vario, BaroAltitude, Imu, Mag, FlightMode, LinkStats]
+Decoded = Union[Battery, Attitude, Gps, Vario, BaroAltitude, Sensors, FlightMode, LinkStats]
 
 
 def _rssi_dbm(raw: int) -> int:
@@ -192,12 +201,12 @@ def decode(frame_type: int, payload: bytes) -> Optional[Decoded]:
         if frame_type == BARO_ALTITUDE and len(payload) >= 3:
             packed, climb = struct.unpack_from(">Hb", payload, 0)
             return BaroAltitude(_unpack_baro_altitude(packed), _unpack_climb(climb))
-        if frame_type == REDSTART_IMU and len(payload) >= 2 + 12:
-            ax, ay, az, gx, gy, gz = struct.unpack_from(">hhhhhh", payload, 2)
-            return Imu((ax / 1000.0, ay / 1000.0, az / 1000.0), (gx / 10.0, gy / 10.0, gz / 10.0))
-        if frame_type == REDSTART_MAG and len(payload) >= 2 + 9:
-            mx, my, mz, heading, flags = struct.unpack_from(">hhhHB", payload, 2)
-            return Mag((mx, my, mz), heading / 10.0, bool(flags & 1))
+        if frame_type == REDSTART_SENSORS and len(payload) >= 2 + 21:
+            ax, ay, az, gx, gy, gz, mx, my, mz, heading, flags = struct.unpack_from(">9hHB", payload, 2)
+            imu = Imu((ax / 1000.0, ay / 1000.0, az / 1000.0), (gx / 10.0, gy / 10.0, gz / 10.0))
+            healthy, calibrated = bool(flags & 1), bool(flags & 2)
+            mag = Mag((mx, my, mz), heading / 10.0, healthy, calibrated) if healthy or (mx, my, mz) != (0, 0, 0) else None
+            return Sensors(imu, mag)
         if frame_type == FLIGHT_MODE:
             return FlightMode(payload.split(b"\x00", 1)[0].decode("ascii", "replace"))
         if frame_type == LINK_STATISTICS and len(payload) >= 10:

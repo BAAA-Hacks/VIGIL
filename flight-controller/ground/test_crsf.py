@@ -47,6 +47,11 @@ def i16(*values):
     return b"".join(int(v).to_bytes(2, "big", signed=True) for v in values)
 
 
+def sensors(accel=(0, 0, 1000), gyro=(0, 0, 0), mag=(0, 0, 0), heading=0, flags=0):
+    """Redstart sensors frame 0x88 (patch 0010)."""
+    return ext(crsf.REDSTART_SENSORS, i16(*accel, *gyro, *mag) + int(heading).to_bytes(2, "big") + bytes([flags]))
+
+
 class CrcAndFraming(unittest.TestCase):
     def test_crc_known_value(self):
         # CRC-8/DVB-S2 check value for "123456789" is 0xBC
@@ -104,16 +109,21 @@ class Decoding(unittest.TestCase):
         self.assertLess(crsf.decode(crsf.BARO_ALTITUDE, (10000).to_bytes(2, "big") + b"\xd8").climb_ms, 0)
         self.assertEqual(crsf.decode(crsf.BARO_ALTITUDE, (0x8000 | 3000).to_bytes(2, "big") + b"\x00").altitude_m, 3000)
 
-    def test_imu_and_mag_frames_skip_extended_addresses(self):
+    def test_sensors_frame_skips_extended_addresses(self):
         parser = crsf.FrameParser()
-        data = ext(crsf.REDSTART_IMU, i16(10, -20, 1000, 15, -30, 0)) \
-            + ext(crsf.REDSTART_MAG, i16(100, -200, 300) + (1234).to_bytes(2, "big") + b"\x01")
-        imu, mag = [crsf.decode(t, p) for t, p in parser.feed(data)]
-        self.assertEqual(imu.accel_g, (0.01, -0.02, 1.0))
-        self.assertEqual(imu.gyro_dps, (1.5, -3.0, 0.0))
-        self.assertEqual(mag.field_counts, (100, -200, 300))
-        self.assertAlmostEqual(mag.heading_deg, 123.4)
-        self.assertTrue(mag.healthy)
+        data = sensors((10, -20, 1000), (15, -30, 0), (100, -200, 300), 1234, flags=0b11)
+        [s] = [crsf.decode(t, p) for t, p in parser.feed(data)]
+        self.assertEqual(s.imu.accel_g, (0.01, -0.02, 1.0))
+        self.assertEqual(s.imu.gyro_dps, (1.5, -3.0, 0.0))
+        self.assertEqual(s.mag.field_counts, (100, -200, 300))
+        self.assertAlmostEqual(s.mag.heading_deg, 123.4)
+        self.assertTrue(s.mag.healthy)
+        self.assertTrue(s.mag.calibrated)
+
+    def test_sensors_frame_without_magnetometer(self):
+        s = crsf.decode(*next(crsf.FrameParser().feed(sensors())))
+        self.assertIsNone(s.mag)
+        self.assertEqual(s.imu.accel_g, (0.0, 0.0, 1.0))
 
     def test_link_stats_uses_stronger_antenna(self):
         ls = crsf.decode(crsf.LINK_STATISTICS, bytes([70, 80, 99, 9, 0, 7, 3, 60, 100, 8]))
@@ -163,19 +173,21 @@ class VehicleTelemetryMapping(unittest.TestCase):
         self.assertEqual(snap["yaw_reference"], "relative")
 
     def test_magnetic_heading_replaces_relative_yaw(self):
-        mag = lambda flags: ext(crsf.REDSTART_MAG, i16(1, 2, 3) + (2705).to_bytes(2, "big") + bytes([flags]))
+        mag = lambda flags: sensors(mag=(1, 2, 3), heading=2705, flags=flags)
         st = TelemetryState(relative_yaw=True)
-        self.feed(st, frame(crsf.ATTITUDE, attitude_payload(0, 0, 45)) + mag(1), 1.0)
+        self.feed(st, frame(crsf.ATTITUDE, attitude_payload(0, 0, 45)) + mag(0b11), 1.0)
         snap = st.snapshot(1.0)
         self.assertAlmostEqual(snap["yaw_deg"], 270.5)
         self.assertEqual(snap["yaw_reference"], "magnetic")
-        self.assertEqual(snap["mag"], {"field_counts": [1, 2, 3], "heading_deg": 270.5, "healthy": True})
+        self.assertEqual(snap["mag"], {"field_counts": [1, 2, 3], "heading_deg": 270.5,
+                                       "healthy": True, "calibrated": True})
 
-        st = TelemetryState(relative_yaw=True)   # magnetometer present but not healthy -> relative yaw
-        self.feed(st, frame(crsf.ATTITUDE, attitude_payload(0, 0, 45)) + mag(0), 1.0)
-        snap = st.snapshot(1.0)
-        self.assertEqual(snap["yaw_reference"], "relative")
-        self.assertFalse(snap["mag"]["healthy"])
+        for flags in (0b01, 0b10, 0b00):   # healthy but uncalibrated, or not healthy -> relative yaw
+            st = TelemetryState(relative_yaw=True)
+            self.feed(st, frame(crsf.ATTITUDE, attitude_payload(0, 0, 45)) + mag(flags), 1.0)
+            snap = st.snapshot(1.0)
+            self.assertEqual(snap["yaw_reference"], "relative", flags)
+            self.assertAlmostEqual(snap["yaw_deg"], 45.0, places=1)
 
     def test_baro_altitude_preferred_and_imu_extra(self):
         st = TelemetryState()
@@ -185,7 +197,7 @@ class VehicleTelemetryMapping(unittest.TestCase):
         snap = st.snapshot(1.0)
         self.assertEqual(snap["altitude_m"], 1.5)
         self.assertIsNone(snap["imu"])
-        self.feed(st, ext(crsf.REDSTART_IMU, i16(0, 0, 1000, 0, 0, 25)), 1.0)
+        self.feed(st, sensors(gyro=(0, 0, 25)), 1.0)
         self.assertEqual(st.snapshot(1.0)["imu"], {"accel_g": [0.0, 0.0, 1.0], "gyro_dps": [0.0, 0.0, 2.5]})
 
     def test_no_gps_position_without_fix(self):

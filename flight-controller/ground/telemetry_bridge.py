@@ -12,12 +12,12 @@ and publishes VehicleTelemetry JSON (one object per line) for the UI.
   add  --udp 127.0.0.1:5600   to also send each JSON object as a UDP datagram
 
 Fields with no real source are null, never invented:
-  yaw_deg      magnetic heading (yaw_reference="magnetic") while the drone reports a healthy
-               magnetometer; otherwise null, or with --relative-yaw INAV's yaw marked "relative"
+  yaw_deg      magnetic heading (yaw_reference="magnetic") while the drone reports a healthy,
+               calibrated magnetometer; otherwise null, or with --relative-yaw INAV's yaw marked "relative"
   altitude_m   barometric altitude frame (0x09) when present, else the GPS frame's altitude
   lat, lon, fix_valid, speed_ms, course_deg   null until the drone sends GPS frames
   battery_v    null while the pack isn't connected to the board's voltage divider (reads < 2 V)
-  imu, mag     raw sensor extras from the ground-telemetry firmware (frames 0x88 / 0x89), else null
+  imu, mag     raw sensor extras from the ground-telemetry firmware (frame 0x88), else null
 """
 
 from __future__ import annotations
@@ -79,7 +79,12 @@ class TelemetryState:
         self.home: Optional[tuple[float, float]] = None  # first valid fix after arming (like INAV's home)
 
     def update(self, decoded: crsf.Decoded, now: float) -> None:
-        self.latest[type(decoded)] = _Timed(decoded, now)
+        if isinstance(decoded, crsf.Sensors):
+            self.latest[crsf.Imu] = _Timed(decoded.imu, now)
+            if decoded.mag is not None:
+                self.latest[crsf.Mag] = _Timed(decoded.mag, now)
+        else:
+            self.latest[type(decoded)] = _Timed(decoded, now)
         if not isinstance(decoded, crsf.LinkStats):  # link stats come from the TX module, not the drone
             self.last_drone_frame = now
         if isinstance(decoded, crsf.FlightMode):
@@ -176,10 +181,11 @@ class TelemetryState:
                 "field_counts": list(mag.field_counts),
                 "heading_deg": round(mag.heading_deg % 360.0, 1),
                 "healthy": mag.healthy,
+                "calibrated": mag.calibrated,
             },
             "source": self.source,
         }
-        if mag is not None and mag.healthy:
+        if mag is not None and mag.healthy and mag.calibrated:
             msg["yaw_deg"] = round(mag.heading_deg % 360.0, 1)
             msg["yaw_reference"] = "magnetic"
         elif self.relative_yaw and attitude is not None:
@@ -325,27 +331,24 @@ class SyntheticSource:
         baro = crsf.build_frame(crsf.BARO_ALTITUDE, (int(round(s["alt"] * 10)) + 10000).to_bytes(2, "big")
                                 + int(round(math.copysign(packed_climb, s["climb"]))).to_bytes(1, "big", signed=True))
 
-        # IMU (0x88): gravity seen through the current attitude plus a little vibration while armed.
+        # Sensors (0x88): gravity seen through the current attitude plus a little vibration while
+        # armed, and a fixed horizontal magnetic field rotated by the heading (healthy + calibrated).
         shake = 0.02 if s["armed"] else 0.002
         accel = (-math.sin(math.radians(pitch)) + shake * math.sin(37 * t),
                  math.sin(math.radians(roll)) + shake * math.sin(41 * t),
                  math.cos(math.radians(pitch)) * math.cos(math.radians(roll)))
         gyro = (0.5 * math.cos(0.25 * t + 1.0) if s["armed"] else 0.0, 0.0, 0.0)
-        imu = crsf.build_frame(crsf.REDSTART_IMU, bytes([0xEA, 0xC8]) + b"".join(
-            int(round(v)).to_bytes(2, "big", signed=True)
-            for v in [a * 1000 for a in accel] + [g * 10 for g in gyro]))
-
-        # Magnetometer (0x89): a fixed horizontal field rotated by the heading.
         h = math.radians(s["yaw"])
-        field = (int(400 * math.cos(h)), int(-400 * math.sin(h)), 600)
-        magf = crsf.build_frame(crsf.REDSTART_MAG, bytes([0xEA, 0xC8])
-                                + b"".join(v.to_bytes(2, "big", signed=True) for v in field)
-                                + int(round(s["yaw"] * 10) % 3600).to_bytes(2, "big") + bytes([1]))
+        field = (400 * math.cos(h), -400 * math.sin(h), 600)
+        sensors = crsf.build_frame(crsf.REDSTART_SENSORS, bytes([0xEA, 0xC8]) + b"".join(
+            int(round(v)).to_bytes(2, "big", signed=True)
+            for v in [a * 1000 for a in accel] + [g * 10 for g in gyro] + list(field))
+            + int(round(s["yaw"] * 10) % 3600).to_bytes(2, "big") + bytes([3]))
 
         lq = 55 if self.DEGRADED[0] <= t < self.DEGRADED[1] else 100
         rssi = (-95 if lq < 70 else -45 - int(s["north"] / 4)) & 0xFF
         link = crsf.build_frame(crsf.LINK_STATISTICS, bytes([rssi, 0, lq, 10, 0, 7, 3, rssi, lq, 8]))
-        return att + bat + mode + gps + vario + baro + imu + magf + link
+        return att + bat + mode + gps + vario + baro + sensors + link
 
 
 # --- Server-Sent Events output ----------------------------------------------
