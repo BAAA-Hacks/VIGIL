@@ -107,7 +107,7 @@ class Gps:
     lon: float
     groundspeed_kmh: float
     heading_deg: float
-    altitude_m: int     # INAV: estimated altitude relative to home
+    altitude_m: int     # GPS altitude above mean sea level, whole metres (patch 0010; stock INAV sent height above home)
     satellites: int
 
 

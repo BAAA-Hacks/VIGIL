@@ -64,7 +64,7 @@ Battery sags under load and drains while armed (4S, from 16.6 V).
 | `battery_v` | battery frame (pack voltage) | no battery frame yet, or below 2 V (pack not connected to the board's sense divider) |
 | `roll_deg`, `pitch_deg` | attitude frame | no attitude frame yet |
 | `yaw_deg` | magnetic heading, 0–360°, with `yaw_reference: "magnetic"`, while the drone reports a healthy **and calibrated** magnetometer (frame 0x88). Otherwise `--relative-yaw` publishes INAV's yaw with `yaw_reference: "relative"` | no healthy magnetometer and no `--relative-yaw` |
-| `altitude_m` | barometric-altitude frame 0x09 (INAV's estimated altitude above the boot/arming reference, 0.1 m); falls back to the GPS frame (whole metres) | neither frame received |
+| `altitude_m` | **height above home**: barometric height (frame 0x09, 0.1 m) above the boot/arming reference | no baro-altitude frame |
 | `lat`, `lon` | GPS frame | no GPS frames, or `fix_valid` is false |
 | `fix_valid` | **heuristic**: ≥ 6 satellites and a non-zero position (CRSF has no explicit fix flag) | no GPS frames |
 | `link_state` | `no_data` / `connected` / `degraded` (uplink LQ < 70) / `lost` (no drone frames for 1.5 s) | never |
@@ -75,6 +75,7 @@ Extras (not in the shared contract; the UI may ignore them):
 |---|---|---|
 | `flight_mode` | INAV mode string: `WAIT` (no GPS), `OK`, `!ERR` (disarmed); `ANGL`, `AH` (alt hold), `HOLD` (position hold), `WP` (mission), `RTH`, `!FS!` (failsafe), … | no flight-mode frame yet |
 | `battery_pct` | INAV's estimate from voltage (no current sensor) | same as `battery_v` |
+| `altitude_msl_m` | above mean sea level: barometric height plus a sea-level offset learned from GPS altitude (smoothed over ~30 s, since GPS altitude jumps by metres) while there's a fix; GPS altitude alone if there's no barometer. Keeps the learned offset if the fix is lost | before the first GPS fix |
 | `climb_ms` | vertical speed, m/s, up positive (vario frame, else the baro-altitude frame) | neither frame yet |
 | `speed_ms`, `course_deg` | GPS ground speed and course over ground | no valid fix |
 | `satellites` | GPS satellite count | no GPS frames |

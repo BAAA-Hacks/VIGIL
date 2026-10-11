@@ -14,7 +14,9 @@ and publishes VehicleTelemetry JSON (one object per line) for the UI.
 Fields with no real source are null, never invented:
   yaw_deg      magnetic heading (yaw_reference="magnetic") while the drone reports a healthy,
                calibrated magnetometer; otherwise null, or with --relative-yaw INAV's yaw marked "relative"
-  altitude_m   barometric altitude frame (0x09) when present, else the GPS frame's altitude
+  altitude_m   height above home: barometric height (frame 0x09) above the boot/arming reference
+  altitude_msl_m  above mean sea level (extra): barometric height plus a sea-level offset learned
+               from GPS altitude while there's a fix; null until the first GPS fix
   lat, lon, fix_valid, speed_ms, course_deg   null until the drone sends GPS frames
   battery_v    null while the pack isn't connected to the board's voltage divider (reads < 2 V)
   imu, mag     raw sensor extras from the ground-telemetry firmware (frame 0x88), else null
@@ -44,6 +46,7 @@ DISARMED_MODES = {"OK", "!ERR", "WAIT"}
 LINK_LOST_AFTER_S = 1.5     # no drone telemetry for this long -> link "lost"
 LQ_DEGRADED_BELOW = 70      # uplink link quality (%) below this -> "degraded"
 MIN_SATS_FOR_FIX = 6        # heuristic: CRSF's GPS frame carries no explicit fix flag
+MSL_OFFSET_TAU_S = 30.0     # smoothing of (GPS sea-level altitude - baro height); GPS altitude is noisy
 BATTERY_PRESENT_ABOVE_V = 2.0  # below this the sense input is floating (no pack on the XT60)
 
 
@@ -77,6 +80,8 @@ class TelemetryState:
         self.last_drone_frame: Optional[float] = None
         self.armed_since: Optional[float] = None     # ground time of the last arm edge
         self.home: Optional[tuple[float, float]] = None  # first valid fix after arming (like INAV's home)
+        self.msl_offset: Optional[float] = None   # GPS sea-level altitude minus baro height, smoothed
+        self._msl_offset_t: Optional[float] = None
 
     def update(self, decoded: crsf.Decoded, now: float) -> None:
         if isinstance(decoded, crsf.Sensors):
@@ -97,6 +102,15 @@ class TelemetryState:
         gps = self._get(crsf.Gps)
         if self.armed_since is not None and self.home is None and _fix_valid(gps):
             self.home = (gps.lat, gps.lon)
+        baro = self._get(crsf.BaroAltitude)
+        if isinstance(decoded, crsf.Gps) and _fix_valid(decoded) and baro is not None:
+            sample = decoded.altitude_m - baro.altitude_m
+            if self.msl_offset is None:
+                self.msl_offset = sample
+            else:
+                alpha = min(1.0, (now - self._msl_offset_t) / MSL_OFFSET_TAU_S)
+                self.msl_offset += alpha * (sample - self.msl_offset)
+            self._msl_offset_t = now
 
     def _get(self, kind):
         entry = self.latest.get(kind)
@@ -122,10 +136,13 @@ class TelemetryState:
         baro = self._get(crsf.BaroAltitude)
         imu = self._get(crsf.Imu)
         mag = self._get(crsf.Mag)
-        if baro is not None:
-            altitude = round(baro.altitude_m, 1)
+        altitude = None if baro is None else round(baro.altitude_m, 1)
+        if baro is not None and self.msl_offset is not None:
+            altitude_msl = round(baro.altitude_m + self.msl_offset, 1)
+        elif baro is None and _fix_valid(gps):
+            altitude_msl = float(gps.altitude_m)
         else:
-            altitude = None if gps is None else gps.altitude_m
+            altitude_msl = None
         if vario is not None:
             climb = round(vario.climb_ms, 2)
         else:
@@ -160,6 +177,7 @@ class TelemetryState:
             "flight_mode": None if mode is None else mode.mode,
             "battery_pct": battery.remaining_pct if battery_present else None,  # INAV, from voltage
             "climb_ms": climb,
+            "altitude_msl_m": altitude_msl,
             "speed_ms": round(gps.groundspeed_kmh / 3.6, 1) if fix_valid else None,
             "course_deg": round(gps.heading_deg % 360.0, 1) if fix_valid else None,
             "satellites": None if gps is None else gps.satellites,
@@ -233,6 +251,7 @@ class SyntheticSource:
     """
 
     HOME = (28.6024, -81.2001)
+    HOME_MSL_M = 27   # ground level above mean sea level at HOME
     CELLS = 4
     # (seconds, INAV flight-mode string, north_m, east_m, alt_m at the END of the segment)
     SEGMENTS = [
@@ -323,7 +342,7 @@ class SyntheticSource:
                                + int(lon * 1e7).to_bytes(4, "big", signed=True)
                                + int(s["speed"] * 3.6 * 10).to_bytes(2, "big")
                                + int(s["yaw"] * 100).to_bytes(2, "big")
-                               + (int(round(s["alt"])) + 1000).to_bytes(2, "big") + bytes([sats]))
+                               + (int(round(s["alt"])) + self.HOME_MSL_M + 1000).to_bytes(2, "big") + bytes([sats]))
         vario = crsf.build_frame(crsf.VARIO, int(s["climb"] * 100).to_bytes(2, "big", signed=True))
 
         # Baro altitude (0x09): decimetres + 10000, climb log-packed like the firmware.

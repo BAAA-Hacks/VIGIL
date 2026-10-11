@@ -189,14 +189,33 @@ class VehicleTelemetryMapping(unittest.TestCase):
             self.assertEqual(snap["yaw_reference"], "relative", flags)
             self.assertAlmostEqual(snap["yaw_deg"], 45.0, places=1)
 
-    def test_baro_altitude_preferred_and_imu_extra(self):
+    def test_altitude_above_home_and_sea_level_extra(self):
+        baro = lambda dm: frame(crsf.BARO_ALTITUDE, (10000 + dm).to_bytes(2, "big") + b"\x00")
         st = TelemetryState()
         self.feed(st, frame(crsf.GPS, gps_payload(28.6, -81.2, 40, 3)), 1.0)
-        self.assertEqual(st.snapshot(1.0)["altitude_m"], 40)            # GPS frame only
-        self.feed(st, frame(crsf.BARO_ALTITUDE, (10000 + 15).to_bytes(2, "big") + b"\x00"), 1.0)
+        self.assertIsNone(st.snapshot(1.0)["altitude_msl_m"])           # no fix: no sea-level source
+        self.feed(st, frame(crsf.GPS, gps_payload(28.6, -81.2, 40, 10)), 1.0)
+        self.assertEqual(st.snapshot(1.0)["altitude_msl_m"], 40)        # GPS only (no barometer)
+        self.assertIsNone(st.snapshot(1.0)["altitude_m"])               # height above home needs the barometer
+
+        st = TelemetryState()
+        self.feed(st, baro(15), 1.0)
         snap = st.snapshot(1.0)
-        self.assertEqual(snap["altitude_m"], 1.5)
-        self.assertIsNone(snap["imu"])
+        self.assertEqual(snap["altitude_m"], 1.5)                       # above home
+        self.assertIsNone(snap["altitude_msl_m"])
+        self.feed(st, frame(crsf.GPS, gps_payload(28.6, -81.2, 40, 10)), 2.0)
+        self.assertEqual(st.snapshot(2.0)["altitude_msl_m"], 40.0)      # offset learned: 40 - 1.5
+        self.feed(st, baro(25), 2.5)
+        self.assertEqual(st.snapshot(2.5)["altitude_m"], 2.5)
+        self.assertEqual(st.snapshot(2.5)["altitude_msl_m"], 41.0)      # follows the barometer
+        self.feed(st, frame(crsf.GPS, gps_payload(28.6, -81.2, 45, 10)), 3.0)
+        self.assertLess(st.snapshot(3.0)["altitude_msl_m"], 41.5)       # a GPS jump only nudges it
+        self.feed(st, frame(crsf.GPS, gps_payload(0, 0, 0, 0)), 4.0)
+        self.assertIsNotNone(st.snapshot(4.0)["altitude_msl_m"])        # fix lost: keeps the learned offset
+
+    def test_imu_extra(self):
+        st = TelemetryState()
+        self.assertIsNone(st.snapshot(1.0)["imu"])
         self.feed(st, sensors(gyro=(0, 0, 25)), 1.0)
         self.assertEqual(st.snapshot(1.0)["imu"], {"accel_g": [0.0, 0.0, 1.0], "gyro_dps": [0.0, 0.0, 2.5]})
 
@@ -281,7 +300,8 @@ class Synthetic(unittest.TestCase):
         self.assertEqual([m for i, m in enumerate(modes) if m and m != modes[i - 1]],
                          ["WAIT", "OK", "ANGL", "AH", "HOLD", "WP", "RTH", "OK"])
         self.assertTrue(any(s["fix_valid"] is False for s in snaps))   # waiting for satellites
-        self.assertEqual(max(s["altitude_m"] or 0 for s in snaps), 10)
+        self.assertEqual(max(s["altitude_m"] or 0 for s in snaps), 10)                                  # above home
+        self.assertEqual(max(s["altitude_msl_m"] or 0 for s in snaps), 10 + SyntheticSource.HOME_MSL_M)  # sea level
         self.assertGreater(max(s["distance_home_m"] or 0 for s in snaps), 50)  # far corner falls in the dropout
         self.assertTrue(all(s["source"] == "synthetic" for s in snaps))
 
