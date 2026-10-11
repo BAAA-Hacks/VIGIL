@@ -12,6 +12,7 @@ Source: `/home/adkat/Projects/redstart/redstart.kicad_sch` + `redstart.kicad_pcb
 | U4 | Adafruit ISM330DHCX breakout | SPI1 (as wired on the PCB) |
 | U3 | Adafruit BMP581 breakout | I2C1 |
 | U2 | Adafruit Ultimate GPS (MTK3339) | USART1 + PPS |
+| (off-board) | Adafruit LIS3MDL magnetometer breakout | I2C1 via STEMMA QT, address 0x1C (breakout default); INAV driver patched to accept it (patch 0008) |
 | J6 | JST-PH 4-pin | ELRS receiver (RadioMaster RP1 V2), CRSF on USART2 |
 | J2–J5 | 1x3 2.54 mm headers | ESC signal: GND / NC / signal |
 | J1 | XT60 | Battery in |
@@ -69,7 +70,7 @@ XT60 → +BATT → MP1584EN → **+5V** (Black Pill 5V pins, J6 receiver power) 
 |---|---|---|
 | Motor outputs ×4 | TIM3 CH1–4 | **The ESCs don't accept DShot** (confirmed 2026-10-10: 0.35 V of DShot on the pins but no arming; they arm on standard PWM). Use STANDARD (or ONESHOT125 if they take it). Throttle endpoints must match the ESC calibration; motor direction is set by swapping motor wires. |
 | CRSF | USART2 (APB1), 420000 baud | Interrupt-driven HardwareSerial, 256-byte RX buffer. USART IRQ priority above the control loop. |
-| GPS | USART1 | 9600 default, PMTK to 38400 / 10 Hz later |
+| GPS | USART1 | NMEA at 9600 (INAV 7.1 dropped NMEA; restored by patch 0009), PMTK to 38400 / 10 Hz later |
 | GPS PPS | TIM1_CH1 input capture (later) | |
 | Buzzer | TIM4_CH4 PWM ~4.1 kHz (HardwareTimer) | |
 | RGB LED | TIM4_CH3 + DMA1 Stream7 Ch2 (deferred) | Conflicts with a TIM4 buzzer frequency; revisit later |
@@ -92,7 +93,7 @@ XT60 → +BATT → MP1584EN → **+5V** (Black Pill 5V pins, J6 receiver power) 
 
 ### Not on this board (per the VIGIL brief)
 - **FLIR Lepton:** not in the schematic netlist. SPI1 is the IMU's, and the F411 shouldn't carry VoSPI video alongside the control loop, so the thermal camera belongs on the Embedded subsystem's own processor and link.
-- **Magnetometer:** proposed, not fitted. Simplest option: share I2C1 (PB6/PB7) with the BMP581, mounted away from the ESC and battery wiring.
+- **Magnetometer:** Adafruit LIS3MDL on I2C1 (STEMMA QT, shared with the BMP581), address 0x1C. Keep it away from the ESC and battery wiring; calibrate in Configurator after mounting.
 - **Telemetry link to ground:** the only confirmed link is ExpressLRS (CRSF telemetry downlink to the radio). USB is bench-only. VehicleTelemetry fields without a sensor (yaw without a mag, GPS before Stage 10) must be reported as unavailable.
 
 ### Unknowns (resolved on hardware)

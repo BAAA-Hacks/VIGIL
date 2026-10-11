@@ -1,0 +1,57 @@
+--- a/src/main/drivers/compass/compass_lis3mdl.c
++++ b/src/main/drivers/compass/compass_lis3mdl.c
+@@ -25,6 +25,7 @@
+ #ifdef USE_MAG_LIS3MDL
+ 
+ #include "common/axis.h"
++#include "common/utils.h"
+ 
+ #include "drivers/time.h"
+ #include "drivers/sensor.h"
+@@ -163,15 +164,26 @@
+ 
+ bool lis3mdlDetect(magDev_t * mag)
+ {
+-    mag->busDev = busDeviceInit(BUSTYPE_I2C, DEVHW_LIS3MDL, mag->magSensorToUse, OWNER_COMPASS);
+-    if (mag->busDev == NULL) {
+-        return false;
++    // The chip answers at 0x1E (SDO/SA1 high) or 0x1C (SDO/SA1 low, the Adafruit breakout's
++    // default). The 0x1C bus device is registered with tag 1 in common_hardware.c.
++    const uint8_t tags[] = { mag->magSensorToUse, 1 };
++    bool found = false;
++
++    for (unsigned i = 0; i < ARRAYLEN(tags) && !found; i++) {
++        if (i > 0 && tags[i] == tags[0]) {
++            break;
++        }
++        mag->busDev = busDeviceInit(BUSTYPE_I2C, DEVHW_LIS3MDL, tags[i], OWNER_COMPASS);
++        if (mag->busDev == NULL) {
++            continue;
++        }
++        found = deviceDetect(mag);
++        if (!found) {
++            busDeviceDeInit(mag->busDev);
++        }
+     }
+-
+-// TODO: Add check for second possible I2C address
+-
+-    if (!deviceDetect(mag)) {
+-        busDeviceDeInit(mag->busDev);
++    if (!found) {
++        mag->busDev = NULL;
+         return false;
+     }
+ 
+--- a/src/main/target/common_hardware.c
++++ b/src/main/target/common_hardware.c
+@@ -235,7 +235,8 @@
+     #endif
+     BUSDEV_REGISTER_I2C(busdev_lis3mdl,     DEVHW_LIS3MDL,      LIS3MDL_I2C_BUS,    0x1E,               NONE,           DEVFLAGS_NONE,  0);
+ //  ST LIS3MDL address can be changed by connecting it's SDO/SA1 pin to either supply or ground.
+-//  BUSDEV_REGISTER_I2C(busdev_lis3mdl,     DEVHW_LIS3MDL,      LIS3MDL_I2C_BUS,    0x1C,               NONE,           DEVFLAGS_NONE);
++//  0x1C (SDO/SA1 low) is the Adafruit breakout's default; lis3mdlDetect() tries tag 1 after tag 0.
++    BUSDEV_REGISTER_I2C_TAG(busdev_lis3mdl_alt, DEVHW_LIS3MDL,  LIS3MDL_I2C_BUS,    0x1C,               NONE,           1,  DEVFLAGS_NONE,  0);
+ #endif
+ 
+ #if defined(USE_MAG_IST8310)
