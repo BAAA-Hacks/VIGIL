@@ -11,9 +11,7 @@ const finite = (value: unknown): value is number =>
   typeof value === "number" && Number.isFinite(value);
 const unit = (value: unknown): value is number =>
   finite(value) && value >= 0 && value <= 1;
-function envelope(
-  value: unknown,
-): value is Record<string, unknown> & {
+function envelope(value: unknown): value is Record<string, unknown> & {
   frame_id: string;
   capture_timestamp_ms: number;
 } {

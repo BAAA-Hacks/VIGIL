@@ -123,10 +123,9 @@ export function projectPerson(
   if (box[0] <= 0 || box[1] <= 0 || box[2] >= 1 || box[3] >= 0.99)
     return unavailable("Ground contact clipped");
   if (
-    ![
-      config.startingCameraHeightM,
-      config.mountDownDeg,
-    ].every(Number.isFinite) ||
+    ![config.startingCameraHeightM, config.mountDownDeg].every(
+      Number.isFinite,
+    ) ||
     config.startingCameraHeightM < 0 ||
     config.mountDownDeg < 0 ||
     config.mountDownDeg > 90

@@ -81,8 +81,7 @@ export function locationSnapshot({
   // are fresh (checked above), so the pose is at most LOCATION_STALE_MS old.
   const capture = frame.timestamp_ms;
   const t = history.at(-1) ?? null;
-  if (!t || !validFix(t))
-    return { ...base, message: "Waiting for GPS fix" };
+  if (!t || !validFix(t)) return { ...base, message: "Waiting for GPS fix" };
   const heading =
     t.yaw_deg !== null && config.headingOffsetDeg !== undefined
       ? wrap(t.yaw_deg + config.headingOffsetDeg)
