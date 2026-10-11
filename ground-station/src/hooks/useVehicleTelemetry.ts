@@ -4,10 +4,14 @@ import type { VehicleTelemetry } from "../types/telemetry";
 import { isVehicleTelemetry } from "../lib/vehicleTelemetry";
 import { formatClock } from "../lib/droneReadings";
 const PACKET_TIMEOUT_MS = 2000;
+// After the bridge stops (e.g. the Pocket is unplugged), start a new one after this delay.
+const BRIDGE_RETRY_MS = 3000;
 export function useVehicleTelemetry() {
-  const [enabled, setEnabled] = useState(false);
+  // Telemetry starts on page load; the toggle only stops (or restarts) it.
+  const [enabled, setEnabled] = useState(true);
+  const [retry, setRetry] = useState(0);
   const [data, setData] = useState<VehicleTelemetry | null>(null);
-  const [state, setState] = useState("Stopped");
+  const [state, setState] = useState("Connecting");
   const [received, setReceived] = useState(0);
   const [now, setNow] = useState(0);
   const [started, setStarted] = useState(0);
@@ -49,10 +53,12 @@ export function useVehicleTelemetry() {
         setState("Invalid telemetry");
       }
     });
+    let retryTimer: ReturnType<typeof setTimeout> | undefined;
     stream.addEventListener("bridge-error", () => {
       setState("Bridge unavailable");
       resetClock();
       stream.close();
+      retryTimer = setTimeout(() => setRetry((n) => n + 1), BRIDGE_RETRY_MS);
     });
     stream.onerror = () => {
       setState("Disconnected");
@@ -64,9 +70,10 @@ export function useVehicleTelemetry() {
       stream.close();
       clearInterval(timer);
       clearTimeout(expiry);
+      clearTimeout(retryTimer);
       lastPacket.current = 0;
     };
-  }, [enabled]);
+  }, [enabled, retry]);
   const stale =
     enabled &&
     received > 0 &&
