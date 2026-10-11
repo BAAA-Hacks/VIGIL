@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # Demo without hardware: replay a recorded session through the real detector into the website.
+# The website shows a Pause replay button while this runs.
 # Start ./web.sh first. Loops until Ctrl+C. Nothing is recorded.
 #
 #   ./replay.sh                      the airborne flight (session 20261011_013730, frames 1120-1400:
