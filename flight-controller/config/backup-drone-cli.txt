@@ -76,9 +76,9 @@ set dynamic_gyro_notch_min_hz = 60
 set dynamic_gyro_notch_mode = 3D
 set setpoint_kalman_q = 200
 set gyro_zero_x = 14
-set gyro_zero_y = -25
+set gyro_zero_y = -26
 set gyro_zero_z = -8
-set ins_gravity_cmss =  980.574
+set ins_gravity_cmss =  978.659
 set acc_hardware = LSM6DXX
 set acczero_x = 17
 set acczero_y = -31
@@ -114,11 +114,10 @@ mmix 3  1.000  1.000 -1.000 -1.000
 # profile
 profile 1
 
-set mc_p_pitch = 29
-set mc_i_pitch = 85
+set mc_p_pitch = 18
+set mc_i_pitch = 35
 set mc_d_pitch = 20
-set mc_p_roll = 23
-set mc_i_roll = 75
+set mc_p_roll = 14
 set mc_d_roll = 17
 set mc_p_yaw = 40
 set mc_i_yaw = 80
@@ -193,7 +192,7 @@ set yaw_rate = 60
 # battery_profile
 battery_profile 1
 
-set throttle_scale =  0.200
+set throttle_scale =  0.450
 set throttle_idle =  5.000
 
 # battery_profile
