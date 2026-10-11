@@ -51,6 +51,7 @@ export class PersonMapController {
   private trailPoints: [number, number][] = [];
   private home: Leaflet.Marker | null = null;
   private droneLastSeen = 0;
+  private lastCourse: number | null = null;
   private fittedSource = "";
   private focusRevision = -1;
   private layer: MapView;
@@ -174,8 +175,10 @@ export class PersonMapController {
   /** Flight trail, home point and travel direction; the trail outlives brief link dropouts. */
   private updateTrack(drone: VehicleTelemetry) {
     const now = Date.now();
-    if (this.droneLastSeen && now - this.droneLastSeen > TRAIL_RESET_AFTER_MS)
+    if (this.droneLastSeen && now - this.droneLastSeen > TRAIL_RESET_AFTER_MS) {
       this.trailPoints = [];
+      this.lastCourse = null;
+    }
     this.droneLastSeen = now;
     const point: [number, number] = [drone.lat!, drone.lon!];
     const last = this.trailPoints.at(-1);
@@ -211,15 +214,19 @@ export class PersonMapController {
         }).addTo(this.map);
       } else this.home.setLatLng([home.lat, home.lon]);
     }
-    // GPS course is north-referenced; INAV yaw is not (no compass), so only show it when moving.
+    // GPS course (north-referenced; INAV yaw has no north without a compass). Course is only
+    // meaningful while moving, so a hovering drone keeps its last good course, dimmed.
+    const moving =
+      drone.course_deg !== undefined &&
+      drone.course_deg !== null &&
+      (drone.speed_ms ?? 0) >= 0.5;
+    if (moving) this.lastCourse = drone.course_deg!;
     if (this.droneArrow) {
-      const moving =
-        drone.course_deg !== undefined &&
-        drone.course_deg !== null &&
-        (drone.speed_ms ?? 0) >= 0.5;
-      this.droneArrow.hidden = !moving;
-      if (moving)
-        this.droneArrow.style.transform = `rotate(${drone.course_deg}deg)`;
+      this.droneArrow.hidden = this.lastCourse === null;
+      if (this.lastCourse !== null) {
+        this.droneArrow.style.transform = `rotate(${this.lastCourse}deg)`;
+        this.droneArrow.style.opacity = moving ? "1" : "0.4";
+      }
     }
   }
 
@@ -231,7 +238,6 @@ export class PersonMapController {
       this.droneContent = "";
       return;
     }
-    this.updateTrack(drone);
     if (!this.drone) {
       const label = document.createElement("span");
       label.className =
@@ -260,6 +266,7 @@ export class PersonMapController {
     const current = this.drone.getLatLng();
     if (current.lat !== drone.lat || current.lng !== drone.lon)
       this.drone.setLatLng([drone.lat!, drone.lon!]);
+    this.updateTrack(drone);
     const coordinates = `${drone.lat!.toFixed(6)}, ${drone.lon!.toFixed(6)}`;
     const details = [
       drone.altitude_m === null
