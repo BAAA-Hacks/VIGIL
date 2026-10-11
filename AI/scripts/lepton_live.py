@@ -9,6 +9,7 @@ import json
 import logging
 import struct
 import sys
+import threading
 import time
 from collections import deque
 from dataclasses import dataclass
@@ -80,20 +81,64 @@ def read_frame(stream: BinaryIO) -> LeptonFrame:
     return LeptonFrame(frame_id, timestamp_ms, width, height, raw_min, raw_max, flags, pixels)
 
 
-def lepton_frames(camera_url: str, timeout: float) -> Iterable[LeptonFrame]:
+def open_raw_stream(camera_url: str, timeout: float):
     url = camera_url.rstrip("/") + "/raw"
     request = Request(url, headers={"Connection": "close", "User-Agent": "VIGIL-Lepton/1"})
     try:
-        response = urlopen(request, timeout=timeout)
+        return urlopen(request, timeout=timeout)
     except HTTPError as exc:
         if exc.code == 503:
             raise RuntimeError("Lepton /raw is busy; only one raw-stream client is allowed") from exc
         raise RuntimeError(f"Lepton returned HTTP {exc.code} for {url}") from exc
     except URLError as exc:
         raise ConnectionError(f"Could not connect to Lepton at {url}: {exc.reason}") from exc
-    with response:
+
+
+def lepton_frames(camera_url: str, timeout: float) -> Iterable[LeptonFrame]:
+    with open_raw_stream(camera_url, timeout) as response:
         while True:
             yield read_frame(response)
+
+
+def latest_lepton_frames(camera_url: str, timeout: float) -> Iterable[tuple[LeptonFrame, int]]:
+    """Yield (newest frame, arrival ms), skipping frames that arrived while the caller was busy.
+
+    Reading in order lets frames queue in the socket buffer whenever processing falls
+    behind, and the output then stays that many frames late for the rest of the session.
+    """
+    response = open_raw_stream(camera_url, timeout)
+    ready = threading.Condition()
+    state: dict = {"item": None, "error": None, "stop": False}
+
+    def reader() -> None:
+        try:
+            while not state["stop"]:
+                frame = read_frame(response)
+                with ready:
+                    state["item"] = (frame, time.time_ns() // 1_000_000)
+                    ready.notify()
+        except BaseException as exc:  # handed to the consumer below
+            with ready:
+                state["error"] = exc
+                ready.notify()
+
+    thread = threading.Thread(target=reader, name="lepton-reader", daemon=True)
+    thread.start()
+    try:
+        while True:
+            with ready:
+                ready.wait_for(lambda: state["item"] is not None or state["error"] is not None)
+                item, state["item"] = state["item"], None
+                if item is None:
+                    raise state["error"]
+            yield item
+    finally:
+        state["stop"] = True
+        try:
+            response.close()  # frees the camera's single /raw slot; unblocks the reader
+        except Exception:
+            pass
+        thread.join(timeout=timeout)
 
 
 def normalize_frame(frame: LeptonFrame) -> np.ndarray:
@@ -615,7 +660,7 @@ def main() -> None:
             try:
                 log.info("Connecting to camera %s/raw", args.camera_url.rstrip("/"))
                 first = True
-                for frame in lepton_frames(args.camera_url, args.connect_timeout):
+                for frame, arrival_ms in latest_lepton_frames(args.camera_url, args.connect_timeout):
                     if first:
                         log.info("Camera streaming (first frame id %d, TLinear=%s)",
                                  frame.camera_frame_id, bool(frame.flags & TLINEAR_FLAG))
@@ -634,7 +679,7 @@ def main() -> None:
                         temporal.reset()
                         hold.reset()
                     last_camera_frame = frame.camera_frame_id
-                    capture_timestamp_ms = time.time_ns() // 1_000_000
+                    capture_timestamp_ms = arrival_ms
                     frame_id = f"lepton-{process_session}-{boot_session}-{frame.camera_frame_id}"
                     image = normalize_frame(frame)
                     model_input = temporal.model_input(image)
