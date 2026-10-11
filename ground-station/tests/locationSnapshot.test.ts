@@ -174,3 +174,23 @@ test("a live GPS fix overrides the fixed location", () => {
     result.pins.every((pin) => !/Fixed location/.test(pin.locationNote ?? "")),
   );
 });
+
+test("fixed-location pins carry their own frame and box, one pin per person", () => {
+  const input = inputs();
+  input.testing = false;
+  input.history = [];
+  input.telemetryReceived = 0;
+  input.fixedLocation = UCF_BUSINESS_ADMINISTRATION;
+  const result = locationSnapshot(input);
+  assert.equal(
+    new Set(result.pins.map((pin) => pin.id)).size,
+    result.pins.length,
+  );
+  result.pins.forEach((pin, index) => {
+    assert.equal(pin.review?.frame.frame_id, input.detection!.frame_id);
+    assert.deepEqual(
+      pin.review?.detection.bbox_xyxy_norm,
+      input.detection!.detections[index].bbox_xyxy_norm,
+    );
+  });
+});
