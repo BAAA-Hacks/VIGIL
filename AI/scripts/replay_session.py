@@ -17,6 +17,7 @@ import cv2
 
 try:
     from AI.scripts.lepton_live import (
+        IdentityStitcher,
         MergedDetector,
         TrackGate,
         TrackHold,
@@ -29,6 +30,7 @@ try:
     from AI.scripts.model_utils import load_model, parse_device
 except ModuleNotFoundError:
     from AI.scripts.lepton_live import (  # type: ignore
+        IdentityStitcher,
         MergedDetector,
         TrackGate,
         TrackHold,
@@ -50,6 +52,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--keep-conf", type=float, default=0.15)
     parser.add_argument("--hold-frames", type=int, default=2)
     parser.add_argument("--min-hits", type=int, default=3)
+    parser.add_argument("--reid-seconds", type=float, default=8.0)
     parser.add_argument("--far-weights", default="none", help="Merge this far-range model with each --weights")
     parser.add_argument("--max-person-temp-c", type=float, default=42.0)
     parser.add_argument("--output", type=Path, help="Write per-frame results as JSON")
@@ -76,13 +79,15 @@ def replay(weights: Path, frames: list, args) -> list[list[dict]]:
     detector = MergedDetector(models, person_classes, tracker, 640, 0.7, parse_device(args.device))
     hold = TrackHold(args.hold_frames)
     track_gate = TrackGate(args.min_hits)
+    stitcher = IdentityStitcher(args.reid_seconds)
     person_class = person_classes[0]
     outputs = []
     for frame in frames:
         image = cv2.cvtColor(normalize_frame(frame), cv2.COLOR_GRAY2BGR)
         result = detector(image, args.keep_conf)
         gate = args.max_person_temp_c if args.max_person_temp_c >= 0 else None
-        outputs.append(track_gate.apply(hold.apply(result_people(result, person_class, frame, 0.01, gate))))
+        people = hold.apply(result_people(result, person_class, frame, 0.01, gate))
+        outputs.append(track_gate.apply(stitcher.apply(people, frame.camera_timestamp_ms / 1000.0)))
     return outputs
 
 

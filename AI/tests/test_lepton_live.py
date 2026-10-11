@@ -8,6 +8,7 @@ import numpy as np
 
 from AI.scripts.lepton_live import (
     HEADER,
+    IdentityStitcher,
     LeptonFrame,
     center_temperature_c,
     feet_visible,
@@ -58,6 +59,40 @@ class LeptonLiveTests(unittest.TestCase):
         self.assertTrue(feet_visible([0.2, 0.2, 0.8, 0.9], 0.01))
         self.assertFalse(feet_visible([0.2, 0.2, 0.8, 1.0], 0.01))
 
+
+
+class IdentityStitcherTests(unittest.TestCase):
+    @staticmethod
+    def person(track: int, x: float, height: float = 0.3, held: bool = False) -> dict:
+        return {"tracking_id": track, "bbox": [x, 0.3, x + 0.1, 0.3 + height], "confidence": 0.8, "held": held}
+
+    def test_a_person_who_reappears_nearby_keeps_their_id(self) -> None:
+        stitcher = IdentityStitcher(8.0)
+        self.assertEqual(stitcher.apply([self.person(1, 0.40)], 0.0)[0]["tracking_id"], 1)
+        self.assertEqual(stitcher.apply([self.person(5, 0.45)], 1.0)[0]["tracking_id"], 1)
+        self.assertEqual(stitcher.apply([self.person(5, 0.47)], 1.1)[0]["tracking_id"], 1)
+
+    def test_lone_person_keeps_their_id_after_the_camera_turns(self) -> None:
+        stitcher = IdentityStitcher(8.0)
+        stitcher.apply([self.person(1, 0.80)], 0.0)
+        self.assertEqual(stitcher.apply([self.person(5, 0.05)], 3.0)[0]["tracking_id"], 1)
+
+    def test_far_reappearance_with_others_in_view_is_a_new_person(self) -> None:
+        stitcher = IdentityStitcher(8.0)
+        stitcher.apply([self.person(1, 0.80), self.person(2, 0.10)], 0.0)
+        ids = {p["tracking_id"] for p in stitcher.apply([self.person(2, 0.10), self.person(7, 0.05, 0.31)], 0.5)}
+        self.assertEqual(ids, {2, 7})
+
+    def test_ids_are_forgotten_after_the_memory_window(self) -> None:
+        stitcher = IdentityStitcher(8.0)
+        stitcher.apply([self.person(1, 0.40)], 0.0)
+        self.assertEqual(stitcher.apply([self.person(5, 0.40)], 9.0)[0]["tracking_id"], 5)
+
+    def test_held_box_is_dropped_when_its_person_has_a_live_box(self) -> None:
+        stitcher = IdentityStitcher(8.0)
+        stitcher.apply([self.person(1, 0.40)], 0.0)
+        out = stitcher.apply([self.person(5, 0.42), self.person(1, 0.40, held=True)], 0.1)
+        self.assertEqual([(p["tracking_id"], p["held"]) for p in out], [(1, False)])
 
 if __name__ == "__main__":
     unittest.main()

@@ -431,6 +431,108 @@ class TrackGate:
         return output
 
 
+class IdentityStitcher:
+    """Keep one person ID across tracker losses.
+
+    ByteTrack re-attaches a lost track only when the new box overlaps its predicted box, so
+    someone who moves while undetected for even a second comes back under a new track ID.
+    A new track that starts within `memory_s` of a lost person, near where they were last
+    seen (the allowed distance grows with the gap, for walking) and at a similar size,
+    inherits that person's ID. Box coordinates are normalized, so distances are fractions
+    of the frame.
+
+    The camera turning moves everyone in the image at once, which no distance limit can
+    tell from a different person. So when exactly one person was lost in the last
+    `sole_gap_s` and exactly one new person appears with nobody else in view, they are
+    taken to be the same person wherever they are in the frame.
+    """
+
+    def __init__(self, memory_s: float, base_distance: float = 0.25, speed: float = 0.15,
+                 max_distance: float = 0.6, max_size_ratio: float = 2.5, sole_gap_s: float = 5.0) -> None:
+        self.memory_s = memory_s
+        self.sole_gap_s = sole_gap_s
+        self.base_distance = base_distance
+        self.speed = speed
+        self.max_distance = max_distance
+        self.max_size_ratio = max_size_ratio
+        self.people: dict[int, tuple[list[float], float]] = {}  # person ID -> (last box, last seen)
+        self.person_of_track: dict[int, int] = {}
+
+    def reset(self) -> None:
+        self.people.clear()
+        self.person_of_track.clear()
+
+    @staticmethod
+    def _center(box: list[float]) -> tuple[float, float]:
+        return (box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0
+
+    def _size_matches(self, box: list[float], last: list[float]) -> bool:
+        ratio = max(box[3] - box[1], 1e-6) / max(last[3] - last[1], 1e-6)
+        return 1 / self.max_size_ratio <= ratio <= self.max_size_ratio
+
+    def _sole_match(self, box: list[float], now_s: float, taken: set[int]) -> int | None:
+        recent = [person for person, (_, seen) in self.people.items()
+                  if person not in taken and now_s - seen <= self.sole_gap_s]
+        if len(recent) == 1 and self._size_matches(box, self.people[recent[0]][0]):
+            return recent[0]
+        return None
+
+    def _match(self, box: list[float], now_s: float, taken: set[int]) -> int | None:
+        best, best_distance = None, None
+        x, y = self._center(box)
+        for person, (last, seen) in self.people.items():
+            if person in taken:
+                continue
+            gap = now_s - seen
+            lx, ly = self._center(last)
+            distance = ((x - lx) ** 2 + (y - ly) ** 2) ** 0.5
+            limit = min(self.max_distance, self.base_distance + self.speed * gap)
+            if distance <= limit and self._size_matches(box, last):
+                if best_distance is None or distance < best_distance:
+                    best, best_distance = person, distance
+        return best
+
+    def apply(self, people: list[dict], now_s: float) -> list[dict]:
+        if self.memory_s <= 0:
+            return people
+        for person, (_, seen) in list(self.people.items()):
+            if now_s - seen > self.memory_s:
+                del self.people[person]
+        live = [p for p in people if not p.get("held") and p.get("tracking_id") is not None]
+        held = [p for p in people if p.get("held") and p.get("tracking_id") is not None]
+        assigned: list[tuple[dict, int]] = []
+        taken: set[int] = set()
+        new_tracks = []
+        for p in live:
+            person = self.person_of_track.get(p["tracking_id"])
+            if person is None or person in taken:
+                new_tracks.append(p)
+            else:
+                taken.add(person)
+                assigned.append((p, person))
+        alone = len(live) == 1 and len(new_tracks) == 1
+        for p in sorted(new_tracks, key=lambda q: -q["confidence"]):
+            person = self._match(p["bbox"], now_s, taken)
+            if person is None and alone:
+                person = self._sole_match(p["bbox"], now_s, taken)
+            if person is None:
+                person = p["tracking_id"]  # a genuinely new person keeps its first track ID
+            self.person_of_track[p["tracking_id"]] = person
+            taken.add(person)
+            assigned.append((p, person))
+        for p in held:  # a held box is dropped if its person already has a live box
+            person = self.person_of_track.get(p["tracking_id"], p["tracking_id"])
+            if person not in taken:
+                taken.add(person)
+                assigned.append((p, person))
+        output = []
+        for p, person in assigned:
+            if not p.get("held"):
+                self.people[person] = (p["bbox"], now_s)
+            output.append(dict(p, tracking_id=person))
+        return output
+
+
 class JsonLineSink:
     def publish(self, event: str, payload: object) -> None:
         print(json.dumps({"event": event, "payload": payload}, separators=(",", ":")), flush=True)
@@ -584,6 +686,11 @@ def parse_args() -> argparse.Namespace:
         help="Weaker detections that overlap an existing track keep it alive (ByteTrack second stage)",
     )
     parser.add_argument("--hold-frames", type=int, default=2, help="Frames to re-emit a vanished track (0 = off)")
+    parser.add_argument(
+        "--reid-seconds", type=float, default=8.0,
+        help="Give a person who reappears within this many seconds, near where they were lost, "
+             "their previous ID instead of a new one (0 disables)",
+    )
     parser.add_argument("--min-hits", type=int, default=3, help="Frames a new track must be seen before it is shown")
     parser.add_argument(
         "--far-weights",
@@ -667,6 +774,7 @@ def main() -> None:
     temporal = TemporalBuffer(args.temporal_step, args.temporal_align)
     hold = TrackHold(args.hold_frames)
     gate = TrackGate(args.min_hits)
+    stitcher = IdentityStitcher(args.reid_seconds)
     if not 0 <= args.keep_conf <= args.conf:
         raise SystemExit("--keep-conf must be between 0 and --conf")
     import tempfile
@@ -718,12 +826,12 @@ def main() -> None:
                     started = time.perf_counter()
                     result = detector(model_input, args.keep_conf)
                     processing_ms = round((time.perf_counter() - started) * 1000.0, 3)
-                    people = gate.apply(hold.apply(
+                    people = gate.apply(stitcher.apply(hold.apply(
                         result_people(
                             result, person_class, frame, args.feet_edge_margin,
                             args.max_person_temp_c if args.max_person_temp_c >= 0 else None,
                         )
-                    ))
+                    ), time.monotonic()))
 
                     common = {
                         "frame_id": frame_id,
