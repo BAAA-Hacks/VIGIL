@@ -3,6 +3,7 @@ import type { PinData } from "../types/mission";
 import type { VehicleTelemetry } from "../types/telemetry";
 import type { MapView } from "../components/mission/MapViewSelect";
 import { validFix } from "./geolocation";
+import { markerHeading } from "./droneHeading";
 import { enableSmoothMapZoom } from "./smoothMapZoom";
 import { MissionShapeLayer } from "./missionShapeLayer";
 import type { PathShape } from "./missionPath";
@@ -231,18 +232,18 @@ export class PersonMapController {
         }).addTo(this.map);
       } else this.home.setLatLng([home.lat, home.lon]);
     }
-    // GPS course (north-referenced; INAV yaw has no north without a compass). Course is only
-    // meaningful while moving, so a hovering drone keeps its last good course, dimmed.
-    const moving =
-      drone.course_deg !== undefined &&
-      drone.course_deg !== null &&
-      (drone.speed_ms ?? 0) >= 0.5;
-    if (moving) this.lastCourse = drone.course_deg!;
+    // North-referenced yaw (calibrated magnetometer or replay track), else GPS course (droneHeading.ts).
+    const heading = markerHeading(drone, this.lastCourse);
+    this.lastCourse = heading.lastCourse;
     if (this.droneArrow) {
-      this.droneArrow.hidden = this.lastCourse === null;
-      if (this.lastCourse !== null) {
-        this.droneArrow.style.transform = `rotate(${this.lastCourse}deg)`;
-        this.droneArrow.style.opacity = moving ? "1" : "0.4";
+      this.droneArrow.hidden = heading.deg === null;
+      if (heading.deg !== null) {
+        this.droneArrow.style.transform = `rotate(${heading.deg}deg)`;
+        this.droneArrow.style.opacity = heading.current ? "1" : "0.4";
+        this.droneArrow.title =
+          heading.source === "nose"
+            ? "Heading"
+            : "Direction of travel (GPS course)";
       }
     }
   }
@@ -260,7 +261,7 @@ export class PersonMapController {
       label.className =
         "relative grid size-8 place-items-center rounded-[4px] border-2 border-[color:var(--color-ink)] bg-[var(--color-blue)] text-xs font-bold text-[color:var(--color-ink)]";
       label.textContent = "D";
-      // Direction-of-travel pointer, rotated about the marker centre.
+      // Heading pointer (magnetometer nose direction, or GPS course), rotated about the marker centre.
       const arrow = document.createElement("span");
       arrow.className =
         "pointer-events-none absolute inset-[-14px] [transform-origin:center]";
@@ -291,9 +292,6 @@ export class PersonMapController {
         : `${drone.altitude_m.toFixed(1)} m above home`,
       ...(drone.speed_ms !== undefined && drone.speed_ms !== null
         ? [`${drone.speed_ms.toFixed(1)} m/s`]
-        : []),
-      ...(drone.distance_home_m !== undefined && drone.distance_home_m !== null
-        ? [`${Math.round(drone.distance_home_m)} m from home`]
         : []),
       ...(drone.satellites !== null ? [`${drone.satellites} satellites`] : []),
     ].join(" · ");

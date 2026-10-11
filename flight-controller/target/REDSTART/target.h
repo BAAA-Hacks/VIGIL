@@ -10,6 +10,9 @@
 #define TARGET_BOARD_IDENTIFIER "RDST"
 #define USBD_PRODUCT_STRING     "REDSTART"
 
+// Define REDSTART_GROUND_ONLY to build firmware that can never arm (patch 0007; status shows
+// KILLSWITCH). It is set on the ground-telemetry branch only.
+
 #define LED0                    PC13    // Black Pill on-board LED
 
 // Passive piezo (AST1341MCTRQ) driven directly by TIM4_CH4
@@ -29,12 +32,16 @@
 #define LSM6DXX_SPI_BUS         BUS_SPI1
 // INT1 (data-ready) is wired to PA1, but INAV polls the gyro; unused for now.
 
-// *************** I2C1: BMP581 baro (driver in M3), future magnetometer *********
+// *************** I2C1: BMP581 baro, future magnetometer *********
 #define USE_I2C
 #define USE_I2C_DEVICE_1
 #define I2C1_SCL                PB6
 #define I2C1_SDA                PB7
 #define DEFAULT_I2C_BUS         BUS_I2C1
+
+#define USE_BARO
+#define BARO_I2C_BUS            BUS_I2C1
+#define USE_BARO_BMP581         // patches/0004 (Bosch BMP581, address 0x47 or 0x46)
 
 #define USE_MAG
 #define MAG_I2C_BUS             BUS_I2C1
@@ -46,6 +53,7 @@
 #define USE_UART1               // GPS (Adafruit Ultimate GPS)
 #define UART1_TX_PIN            PA9
 #define UART1_RX_PIN            PA10
+#define USE_GPS_PROTO_NMEA      // patches/0009: NMEA driver restored from INAV 6.1.1 (MTK3339 has no UBX)
 
 #define USE_UART2               // ExpressLRS RP1 V2 (CRSF)
 #define UART2_TX_PIN            PA2

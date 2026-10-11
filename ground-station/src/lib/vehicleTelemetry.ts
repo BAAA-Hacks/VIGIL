@@ -39,6 +39,7 @@ export function isVehicleTelemetry(value: unknown): value is VehicleTelemetry {
     "distance_home_m",
     "pcb_temp_c",
     "battery_pct",
+    "altitude_msl_m",
   ];
   if (
     !optionalNumbers.every(
@@ -68,6 +69,26 @@ export function isVehicleTelemetry(value: unknown): value is VehicleTelemetry {
       !finite(home.lon) ||
       Math.abs(home.lat as number) > 90 ||
       Math.abs(home.lon as number) > 180
+    )
+      return false;
+  }
+  const vector = (item: unknown) =>
+    Array.isArray(item) && item.length === 3 && item.every(finite);
+  if (record.imu !== undefined && record.imu !== null) {
+    if (typeof record.imu !== "object") return false;
+    const imu = record.imu as Record<string, unknown>;
+    if (!vector(imu.accel_g) || !vector(imu.gyro_dps)) return false;
+  }
+  if (record.mag !== undefined && record.mag !== null) {
+    if (typeof record.mag !== "object") return false;
+    const mag = record.mag as Record<string, unknown>;
+    if (
+      !vector(mag.field_counts) ||
+      !finite(mag.heading_deg) ||
+      (mag.heading_deg as number) < 0 ||
+      (mag.heading_deg as number) >= 360 ||
+      typeof mag.healthy !== "boolean" ||
+      typeof mag.calibrated !== "boolean"
     )
       return false;
   }

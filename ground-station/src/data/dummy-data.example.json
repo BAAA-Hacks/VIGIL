@@ -119,6 +119,7 @@
       "pitch_deg": -0.6,
       "yaw_deg": 0,
       "altitude_m": 510,
+      "altitude_msl_m": 510,
       "lat": 34.0525,
       "lon": -118.243,
       "fix_valid": true,
@@ -143,6 +144,16 @@
       "home": {
         "lat": 34.0525,
         "lon": -118.243
+      },
+      "imu": {
+        "accel_g": [0.01, -0.007, 1.0],
+        "gyro_dps": [0.2, -0.1, 0.0]
+      },
+      "mag": {
+        "field_counts": [400, 0, 600],
+        "heading_deg": 0,
+        "healthy": true,
+        "calibrated": true
       }
     },
     "frame": {

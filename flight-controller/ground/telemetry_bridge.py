@@ -13,10 +13,14 @@ and publishes VehicleTelemetry JSON (one object per line) for the UI.
   add  --udp 127.0.0.1:5600   to also send each JSON object as a UDP datagram
 
 Fields with no real source are null, never invented:
-  yaw_deg      null: no compass, so INAV's yaw has no north reference
-               (--relative-yaw publishes it anyway, marked yaw_reference="relative")
-  altitude_m, lat, lon, fix_valid, speed_ms, course_deg   null until the drone sends GPS frames (milestone M4)
+  yaw_deg      magnetic heading (yaw_reference="magnetic") while the drone reports a healthy,
+               calibrated magnetometer; otherwise null, or with --relative-yaw INAV's yaw marked "relative"
+  altitude_m   height above home: barometric height (frame 0x09) above the boot/arming reference
+  altitude_msl_m  above mean sea level (extra): barometric height plus a sea-level offset learned
+               from GPS altitude while there's a fix; null until the first GPS fix
+  lat, lon, fix_valid, speed_ms, course_deg   null until the drone sends GPS frames
   battery_v    null while the pack isn't connected to the board's voltage divider (reads < 2 V)
+  imu, mag     raw sensor extras from the ground-telemetry firmware (frame 0x88), else null
 """
 
 from __future__ import annotations
@@ -44,6 +48,7 @@ DISARMED_MODES = {"OK", "!ERR", "WAIT"}
 LINK_LOST_AFTER_S = 1.5     # no drone telemetry for this long -> link "lost"
 LQ_DEGRADED_BELOW = 70      # uplink link quality (%) below this -> "degraded"
 MIN_SATS_FOR_FIX = 6        # heuristic: CRSF's GPS frame carries no explicit fix flag
+MSL_OFFSET_TAU_S = 30.0     # smoothing of (GPS sea-level altitude - baro height); GPS altitude is noisy
 BATTERY_PRESENT_ABOVE_V = 2.0  # below this the sense input is floating (no pack on the XT60)
 
 
@@ -69,18 +74,29 @@ def _distance_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
 class TelemetryState:
     """Latest decoded values plus the time each arrived (monotonic seconds)."""
 
-    def __init__(self, relative_yaw: bool = False, source: str = "pocket", north_yaw: bool = False) -> None:
+    def __init__(self, relative_yaw: bool = False, source: str = "pocket", north_yaw: bool = False,
+                 gps_altitude_msl: bool = True) -> None:
         self.relative_yaw = relative_yaw
         self.north_yaw = north_yaw  # the source's yaw is a true heading (reconstructed track only)
+        # The GPS frame's altitude is above sea level (firmware patch 0010); the reconstructed
+        # track only knows height above home, so it can't supply a sea-level altitude.
+        self.gps_altitude_msl = gps_altitude_msl
         self.source = source
         self.latest: dict[type, _Timed] = {}
         self.synthetic_started: Optional[float] = None
         self.last_drone_frame: Optional[float] = None
         self.armed_since: Optional[float] = None     # ground time of the last arm edge
         self.home: Optional[tuple[float, float]] = None  # first valid fix after arming (like INAV's home)
+        self.msl_offset: Optional[float] = None   # GPS sea-level altitude minus baro height, smoothed
+        self._msl_offset_t: Optional[float] = None
 
     def update(self, decoded: crsf.Decoded, now: float) -> None:
-        self.latest[type(decoded)] = _Timed(decoded, now)
+        if isinstance(decoded, crsf.Sensors):
+            self.latest[crsf.Imu] = _Timed(decoded.imu, now)
+            if decoded.mag is not None:
+                self.latest[crsf.Mag] = _Timed(decoded.mag, now)
+        else:
+            self.latest[type(decoded)] = _Timed(decoded, now)
         if not isinstance(decoded, crsf.LinkStats):  # link stats come from the TX module, not the drone
             self.last_drone_frame = now
         if isinstance(decoded, crsf.FlightMode):
@@ -93,6 +109,15 @@ class TelemetryState:
         gps = self._get(crsf.Gps)
         if self.armed_since is not None and self.home is None and _fix_valid(gps):
             self.home = (gps.lat, gps.lon)
+        baro = self._get(crsf.BaroAltitude)
+        if isinstance(decoded, crsf.Gps) and _fix_valid(decoded) and baro is not None and self.gps_altitude_msl:
+            sample = decoded.altitude_m - baro.altitude_m
+            if self.msl_offset is None:
+                self.msl_offset = sample
+            else:
+                alpha = min(1.0, (now - self._msl_offset_t) / MSL_OFFSET_TAU_S)
+                self.msl_offset += alpha * (sample - self.msl_offset)
+            self._msl_offset_t = now
 
     def _get(self, kind):
         entry = self.latest.get(kind)
@@ -115,6 +140,20 @@ class TelemetryState:
         mode = self._get(crsf.FlightMode)
         link = self._get(crsf.LinkStats)
         vario = self._get(crsf.Vario)
+        baro = self._get(crsf.BaroAltitude)
+        imu = self._get(crsf.Imu)
+        mag = self._get(crsf.Mag)
+        altitude = None if baro is None else round(baro.altitude_m, 1)
+        if baro is not None and self.msl_offset is not None:
+            altitude_msl = round(baro.altitude_m + self.msl_offset, 1)
+        elif baro is None and _fix_valid(gps) and self.gps_altitude_msl:
+            altitude_msl = float(gps.altitude_m)
+        else:
+            altitude_msl = None
+        if vario is not None:
+            climb = round(vario.climb_ms, 2)
+        else:
+            climb = None if baro is None else round(baro.climb_ms, 2)
 
         fix_valid = _fix_valid(gps)
         battery_present = battery is not None and battery.voltage_v >= BATTERY_PRESENT_ABOVE_V
@@ -136,7 +175,7 @@ class TelemetryState:
             # INAV sends pitch positive nose-down; the VehicleTelemetry contract is nose-up positive.
             "pitch_deg": None if attitude is None else round(-attitude.pitch_deg, 1),
             "yaw_deg": None,
-            "altitude_m": None if gps is None else gps.altitude_m,
+            "altitude_m": altitude,
             "lat": gps.lat if fix_valid else None,
             "lon": gps.lon if fix_valid else None,
             "fix_valid": fix_valid,
@@ -144,7 +183,8 @@ class TelemetryState:
             # extras (not in the shared contract, safe for the UI to ignore)
             "flight_mode": None if mode is None else mode.mode,
             "battery_pct": battery.remaining_pct if battery_present else None,  # INAV, from voltage
-            "climb_ms": None if vario is None else round(vario.climb_ms, 2),
+            "climb_ms": climb,
+            "altitude_msl_m": altitude_msl,
             "speed_ms": round(gps.groundspeed_kmh / 3.6, 1) if fix_valid else None,
             "course_deg": round(gps.heading_deg % 360.0, 1) if fix_valid else None,
             "satellites": None if gps is None else gps.satellites,
@@ -158,11 +198,24 @@ class TelemetryState:
                 "downlink_rssi_dbm": link.downlink_rssi_dbm,
             },
             "data_age_ms": None if self.last_drone_frame is None else int((now - self.last_drone_frame) * 1000),
+            "imu": None if imu is None else {
+                "accel_g": [round(v, 3) for v in imu.accel_g],
+                "gyro_dps": [round(v, 1) for v in imu.gyro_dps],
+            },
+            "mag": None if mag is None else {
+                "field_counts": list(mag.field_counts),
+                "heading_deg": round(mag.heading_deg % 360.0, 1),
+                "healthy": mag.healthy,
+                "calibrated": mag.calibrated,
+            },
             "source": self.source,
         }
         if self.north_yaw and attitude is not None:
             msg["yaw_deg"] = round(attitude.yaw_deg % 360.0, 1)
             msg["yaw_reference"] = "north"
+        elif mag is not None and mag.healthy and mag.calibrated:
+            msg["yaw_deg"] = round(mag.heading_deg % 360.0, 1)
+            msg["yaw_reference"] = "magnetic"
         elif self.relative_yaw and attitude is not None:
             msg["yaw_deg"] = round(attitude.yaw_deg % 360.0, 1)
             msg["yaw_reference"] = "relative"
@@ -197,7 +250,8 @@ class ReplaySource:
 
 class SyntheticSource:
     """Scripted ~110 s mission that exercises every frame the drone will eventually send
-    (attitude, battery, flight mode, GPS, vario, link stats), looping forever:
+    (attitude, battery, flight mode, GPS, vario, baro altitude, IMU, magnetometer, link stats),
+    looping forever:
 
       WAIT for GPS (satellites climb, no fix) -> OK (disarmed, fix) -> arm, ANGL climb to 10 m
       -> AH -> HOLD -> WP square (link degraded, then a 2.5 s dropout) -> RTH and land -> disarm
@@ -207,6 +261,7 @@ class SyntheticSource:
     """
 
     HOME = (28.6024, -81.2001)
+    HOME_MSL_M = 27   # ground level above mean sea level at HOME
     CELLS = 4
     # (seconds, INAV flight-mode string, north_m, east_m, alt_m at the END of the segment)
     SEGMENTS = [
@@ -297,13 +352,32 @@ class SyntheticSource:
                                + int(lon * 1e7).to_bytes(4, "big", signed=True)
                                + int(s["speed"] * 3.6 * 10).to_bytes(2, "big")
                                + int(s["yaw"] * 100).to_bytes(2, "big")
-                               + (int(round(s["alt"])) + 1000).to_bytes(2, "big") + bytes([sats]))
+                               + (int(round(s["alt"])) + self.HOME_MSL_M + 1000).to_bytes(2, "big") + bytes([sats]))
         vario = crsf.build_frame(crsf.VARIO, int(s["climb"] * 100).to_bytes(2, "big", signed=True))
+
+        # Baro altitude (0x09): decimetres + 10000, climb log-packed like the firmware.
+        packed_climb = math.log(1.0 + abs(s["climb"]) * 100.0 / 100.0) / 0.026
+        baro = crsf.build_frame(crsf.BARO_ALTITUDE, (int(round(s["alt"] * 10)) + 10000).to_bytes(2, "big")
+                                + int(round(math.copysign(packed_climb, s["climb"]))).to_bytes(1, "big", signed=True))
+
+        # Sensors (0x88): gravity seen through the current attitude plus a little vibration while
+        # armed, and a fixed horizontal magnetic field rotated by the heading (healthy + calibrated).
+        shake = 0.02 if s["armed"] else 0.002
+        accel = (-math.sin(math.radians(pitch)) + shake * math.sin(37 * t),
+                 math.sin(math.radians(roll)) + shake * math.sin(41 * t),
+                 math.cos(math.radians(pitch)) * math.cos(math.radians(roll)))
+        gyro = (0.5 * math.cos(0.25 * t + 1.0) if s["armed"] else 0.0, 0.0, 0.0)
+        h = math.radians(s["yaw"])
+        field = (400 * math.cos(h), -400 * math.sin(h), 600)
+        sensors = crsf.build_frame(crsf.REDSTART_SENSORS, bytes([0xEA, 0xC8]) + b"".join(
+            int(round(v)).to_bytes(2, "big", signed=True)
+            for v in [a * 1000 for a in accel] + [g * 10 for g in gyro] + list(field))
+            + int(round(s["yaw"] * 10) % 3600).to_bytes(2, "big") + bytes([3]))
 
         lq = 55 if self.DEGRADED[0] <= t < self.DEGRADED[1] else 100
         rssi = (-95 if lq < 70 else -45 - int(s["north"] / 4)) & 0xFF
         link = crsf.build_frame(crsf.LINK_STATISTICS, bytes([rssi, 0, lq, 10, 0, 7, 3, rssi, lq, 8]))
-        return att + bat + mode + gps + vario + link
+        return att + bat + mode + gps + vario + baro + sensors + link
 
 
 class TrackSource:
@@ -345,8 +419,10 @@ class TrackSource:
                                + (int(round(k["alt_m"])) + 1000).to_bytes(2, "big") + bytes([self.SATELLITES]))
         mode = crsf.build_frame(crsf.FLIGHT_MODE, k["mode"].encode() + b"\x00")
         vario = crsf.build_frame(crsf.VARIO, (0).to_bytes(2, "big", signed=True))
+        # Height above home goes in the baro-altitude frame, as from the drone (decimetres + 10000).
+        baro = crsf.build_frame(crsf.BARO_ALTITUDE, (int(round(k["alt_m"] * 10)) + 10000).to_bytes(2, "big") + b"\x00")
         link = crsf.build_frame(crsf.LINK_STATISTICS, bytes([(-40) & 0xFF, 0, 100, 10, 0, 7, 3, (-40) & 0xFF, 100, 8]))
-        return att + gps + mode + vario + link
+        return att + gps + mode + vario + baro + link
 
     def read(self, _n: int) -> bytes:
         time.sleep(0.1)
@@ -522,7 +598,7 @@ def main() -> int:
     # Treat SIGTERM (e.g. from `timeout` or a service manager) like Ctrl+C.
     signal.signal(signal.SIGTERM, _raise_keyboard_interrupt)
     state = TelemetryState(relative_yaw=args.relative_yaw or args.synthetic, source=label,
-                           north_yaw=bool(args.track))
+                           north_yaw=bool(args.track), gps_altitude_msl=not args.track)
     try:
         run(source, state, args.rate, udp=udp, record=record, hub=hub)
     except (KeyboardInterrupt, BrokenPipeError):

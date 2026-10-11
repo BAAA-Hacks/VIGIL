@@ -17,6 +17,26 @@ function formatSignedAngle(value: number | null | undefined) {
   return formatNumber(((((value + 180) % 360) + 360) % 360) - 180, "°");
 }
 
+function formatVector(
+  value: readonly number[] | undefined,
+  digits: number,
+  unit: string,
+) {
+  return value
+    ? value.map((v) => v.toFixed(digits)).join(" / ") + " " + unit
+    : unavailable;
+}
+
+function formatCompass(mag: VehicleTelemetry["mag"]) {
+  if (!mag) return unavailable;
+  if (!mag.healthy) return "Not responding";
+  return (
+    mag.heading_deg.toFixed(1) +
+    " ° · " +
+    (mag.calibrated ? "Calibrated" : "Not calibrated")
+  );
+}
+
 function formatFix(value: boolean | null) {
   return value === null ? "Unknown" : value ? "Valid" : "No fix";
 }
@@ -75,11 +95,24 @@ export function getDroneReadings(
     },
     { label: "Flight time", value: flightTime },
     {
+      label: "Altitude (sea level)",
+      value: formatNumber(data?.altitude_msl_m, "m"),
+    },
+    {
       label: "Satellites / GPS fix",
       value: data
         ? (data.satellites ?? "—") + " / " + formatFix(data.fix_valid)
         : unavailable,
     },
+    {
+      label: "Accelerometer (x / y / z)",
+      value: formatVector(data?.imu?.accel_g, 2, "g"),
+    },
+    {
+      label: "Gyro (x / y / z)",
+      value: formatVector(data?.imu?.gyro_dps, 1, "°/s"),
+    },
+    { label: "Compass", value: formatCompass(data?.mag) },
     {
       label: "Uplink quality / RSSI",
       value: formatLink(data?.link ?? null, "uplink"),

@@ -38,6 +38,20 @@ def gps_payload(lat, lon, alt_m, sats, speed_kmh=0.0, heading=0.0):
             + (alt_m + 1000).to_bytes(2, "big") + bytes([sats]))
 
 
+def ext(ftype, payload):
+    """Extended frame from the flight controller to the radio (dest 0xEA, origin 0xC8)."""
+    return frame(ftype, bytes([0xEA, 0xC8]) + payload)
+
+
+def i16(*values):
+    return b"".join(int(v).to_bytes(2, "big", signed=True) for v in values)
+
+
+def sensors(accel=(0, 0, 1000), gyro=(0, 0, 0), mag=(0, 0, 0), heading=0, flags=0):
+    """Redstart sensors frame 0x88 (patch 0010)."""
+    return ext(crsf.REDSTART_SENSORS, i16(*accel, *gyro, *mag) + int(heading).to_bytes(2, "big") + bytes([flags]))
+
+
 class CrcAndFraming(unittest.TestCase):
     def test_crc_known_value(self):
         # CRC-8/DVB-S2 check value for "123456789" is 0xBC
@@ -87,6 +101,30 @@ class Decoding(unittest.TestCase):
         self.assertAlmostEqual(g.lon, -81.2001, places=5)
         self.assertEqual((g.altitude_m, g.satellites), (35, 11))
 
+    def test_baro_altitude_packing(self):
+        b = crsf.decode(crsf.BARO_ALTITUDE, (10000 + 123).to_bytes(2, "big") + bytes([40]))
+        self.assertAlmostEqual(b.altitude_m, 12.3)
+        self.assertAlmostEqual(b.climb_ms, math.exp(40 * 0.026) - 1, places=3)   # firmware: ln(1+v/100)/0.026
+        self.assertAlmostEqual(crsf.decode(crsf.BARO_ALTITUDE, (10000 - 25).to_bytes(2, "big") + b"\xd8").altitude_m, -2.5)
+        self.assertLess(crsf.decode(crsf.BARO_ALTITUDE, (10000).to_bytes(2, "big") + b"\xd8").climb_ms, 0)
+        self.assertEqual(crsf.decode(crsf.BARO_ALTITUDE, (0x8000 | 3000).to_bytes(2, "big") + b"\x00").altitude_m, 3000)
+
+    def test_sensors_frame_skips_extended_addresses(self):
+        parser = crsf.FrameParser()
+        data = sensors((10, -20, 1000), (15, -30, 0), (100, -200, 300), 1234, flags=0b11)
+        [s] = [crsf.decode(t, p) for t, p in parser.feed(data)]
+        self.assertEqual(s.imu.accel_g, (0.01, -0.02, 1.0))
+        self.assertEqual(s.imu.gyro_dps, (1.5, -3.0, 0.0))
+        self.assertEqual(s.mag.field_counts, (100, -200, 300))
+        self.assertAlmostEqual(s.mag.heading_deg, 123.4)
+        self.assertTrue(s.mag.healthy)
+        self.assertTrue(s.mag.calibrated)
+
+    def test_sensors_frame_without_magnetometer(self):
+        s = crsf.decode(*next(crsf.FrameParser().feed(sensors())))
+        self.assertIsNone(s.mag)
+        self.assertEqual(s.imu.accel_g, (0.0, 0.0, 1.0))
+
     def test_link_stats_uses_stronger_antenna(self):
         ls = crsf.decode(crsf.LINK_STATISTICS, bytes([70, 80, 99, 9, 0, 7, 3, 60, 100, 8]))
         self.assertEqual(ls.uplink_rssi_dbm, -70)
@@ -133,6 +171,53 @@ class VehicleTelemetryMapping(unittest.TestCase):
         snap = st.snapshot(1.0)
         self.assertAlmostEqual(snap["yaw_deg"], 45.0, places=1)
         self.assertEqual(snap["yaw_reference"], "relative")
+
+    def test_magnetic_heading_replaces_relative_yaw(self):
+        mag = lambda flags: sensors(mag=(1, 2, 3), heading=2705, flags=flags)
+        st = TelemetryState(relative_yaw=True)
+        self.feed(st, frame(crsf.ATTITUDE, attitude_payload(0, 0, 45)) + mag(0b11), 1.0)
+        snap = st.snapshot(1.0)
+        self.assertAlmostEqual(snap["yaw_deg"], 270.5)
+        self.assertEqual(snap["yaw_reference"], "magnetic")
+        self.assertEqual(snap["mag"], {"field_counts": [1, 2, 3], "heading_deg": 270.5,
+                                       "healthy": True, "calibrated": True})
+
+        for flags in (0b01, 0b10, 0b00):   # healthy but uncalibrated, or not healthy -> relative yaw
+            st = TelemetryState(relative_yaw=True)
+            self.feed(st, frame(crsf.ATTITUDE, attitude_payload(0, 0, 45)) + mag(flags), 1.0)
+            snap = st.snapshot(1.0)
+            self.assertEqual(snap["yaw_reference"], "relative", flags)
+            self.assertAlmostEqual(snap["yaw_deg"], 45.0, places=1)
+
+    def test_altitude_above_home_and_sea_level_extra(self):
+        baro = lambda dm: frame(crsf.BARO_ALTITUDE, (10000 + dm).to_bytes(2, "big") + b"\x00")
+        st = TelemetryState()
+        self.feed(st, frame(crsf.GPS, gps_payload(28.6, -81.2, 40, 3)), 1.0)
+        self.assertIsNone(st.snapshot(1.0)["altitude_msl_m"])           # no fix: no sea-level source
+        self.feed(st, frame(crsf.GPS, gps_payload(28.6, -81.2, 40, 10)), 1.0)
+        self.assertEqual(st.snapshot(1.0)["altitude_msl_m"], 40)        # GPS only (no barometer)
+        self.assertIsNone(st.snapshot(1.0)["altitude_m"])               # height above home needs the barometer
+
+        st = TelemetryState()
+        self.feed(st, baro(15), 1.0)
+        snap = st.snapshot(1.0)
+        self.assertEqual(snap["altitude_m"], 1.5)                       # above home
+        self.assertIsNone(snap["altitude_msl_m"])
+        self.feed(st, frame(crsf.GPS, gps_payload(28.6, -81.2, 40, 10)), 2.0)
+        self.assertEqual(st.snapshot(2.0)["altitude_msl_m"], 40.0)      # offset learned: 40 - 1.5
+        self.feed(st, baro(25), 2.5)
+        self.assertEqual(st.snapshot(2.5)["altitude_m"], 2.5)
+        self.assertEqual(st.snapshot(2.5)["altitude_msl_m"], 41.0)      # follows the barometer
+        self.feed(st, frame(crsf.GPS, gps_payload(28.6, -81.2, 45, 10)), 3.0)
+        self.assertLess(st.snapshot(3.0)["altitude_msl_m"], 41.5)       # a GPS jump only nudges it
+        self.feed(st, frame(crsf.GPS, gps_payload(0, 0, 0, 0)), 4.0)
+        self.assertIsNotNone(st.snapshot(4.0)["altitude_msl_m"])        # fix lost: keeps the learned offset
+
+    def test_imu_extra(self):
+        st = TelemetryState()
+        self.assertIsNone(st.snapshot(1.0)["imu"])
+        self.feed(st, sensors(gyro=(0, 0, 25)), 1.0)
+        self.assertEqual(st.snapshot(1.0)["imu"], {"accel_g": [0.0, 0.0, 1.0], "gyro_dps": [0.0, 0.0, 2.5]})
 
     def test_no_gps_position_without_fix(self):
         st = TelemetryState()
@@ -208,14 +293,15 @@ class Synthetic(unittest.TestCase):
         snaps = self.run_mission()
         for key in ("armed", "battery_v", "roll_deg", "pitch_deg", "yaw_deg", "altitude_m", "lat", "lon",
                     "fix_valid", "battery_pct", "climb_ms", "speed_ms", "course_deg", "satellites",
-                    "home", "distance_home_m", "armed_time_s", "link"):
+                    "home", "distance_home_m", "armed_time_s", "link", "imu", "mag"):
             self.assertTrue(any(s[key] not in (None, 0, False) for s in snaps), key)
         self.assertEqual({s["link_state"] for s in snaps}, {"connected", "degraded", "lost"})
         modes = [s["flight_mode"] for s in snaps]
         self.assertEqual([m for i, m in enumerate(modes) if m and m != modes[i - 1]],
                          ["WAIT", "OK", "ANGL", "AH", "HOLD", "WP", "RTH", "OK"])
         self.assertTrue(any(s["fix_valid"] is False for s in snaps))   # waiting for satellites
-        self.assertEqual(max(s["altitude_m"] or 0 for s in snaps), 10)
+        self.assertEqual(max(s["altitude_m"] or 0 for s in snaps), 10)                                  # above home
+        self.assertEqual(max(s["altitude_msl_m"] or 0 for s in snaps), 10 + SyntheticSource.HOME_MSL_M)  # sea level
         self.assertGreater(max(s["distance_home_m"] or 0 for s in snaps), 50)  # far corner falls in the dropout
         self.assertTrue(all(s["source"] == "synthetic" for s in snaps))
 
@@ -265,7 +351,8 @@ class TrackReplay(unittest.TestCase):
         self.assertAlmostEqual(snap["pitch_deg"], -3.0, places=1)  # nose-up contract survives the wire
         self.assertAlmostEqual(snap["yaw_deg"], 45.0, places=1)
         self.assertEqual(snap["yaw_reference"], "north")
-        self.assertEqual(snap["altitude_m"], 1)  # CRSF carries whole metres, like INAV
+        self.assertEqual(snap["altitude_m"], 1.2)      # height above home, from the baro-altitude frame (0.1 m)
+        self.assertIsNone(snap["altitude_msl_m"])      # the track has no sea-level altitude
         self.assertTrue(snap["armed"])
         self.assertIsNone(snap["battery_v"])
         with mock.patch.object(telemetry_bridge.time, "sleep"), \

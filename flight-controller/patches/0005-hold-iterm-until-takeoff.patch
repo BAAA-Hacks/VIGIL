@@ -1,0 +1,43 @@
+--- a/src/main/fc/fc_core.c
++++ b/src/main/fc/fc_core.c
+@@ -879,6 +879,31 @@
+     }
+ }
+ 
++// Redstart: hold the I-term at zero after arming until the throttle first reaches 80% of
++// hover (nav_mc_hover_thr). Otherwise it winds up while the drone sits on its legs and the
++// stored correction makes it lurch at lift-off. Compared in stick units (before
++// throttle_scale), the same units the altitude controller uses for nav_mc_hover_thr.
++static void holdItermUntilTakeoff(void)
++{
++    static bool takeoffThrottleReached;
++
++    if (!ARMING_FLAG(ARMED)) {
++        takeoffThrottleReached = false;
++        return;
++    }
++    if (takeoffThrottleReached || !STATE(MULTIROTOR)) {
++        return;
++    }
++
++    const int idle = getThrottleIdleValue();
++    const int threshold = idle + (currentBatteryProfile->nav.mc.hover_throttle - idle) * 4 / 5;
++    if (rcCommand[THROTTLE] >= threshold) {
++        takeoffThrottleReached = true;
++    } else {
++        pidResetErrorAccumulators();
++    }
++}
++
+ void taskMainPidLoop(timeUs_t currentTimeUs)
+ {
+ 
+@@ -940,6 +965,8 @@
+     powerLimiterApply(&rcCommand[THROTTLE]);
+ #endif
+ 
++    holdItermUntilTakeoff();
++
+     // Calculate stabilisation
+     pidController(dT);
+ 

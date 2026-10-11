@@ -1,0 +1,15 @@
+--- a/src/main/fc/fc_core.c
++++ b/src/main/fc/fc_core.c
+@@ -309,7 +309,12 @@
+         }
+ 
+         /* CHECK: BOXKILLSWITCH */
++#ifdef REDSTART_GROUND_ONLY
++        // Ground-only build (ground telemetry): arming is permanently blocked and shows as KILLSWITCH.
++        if (true) {
++#else
+         if (IS_RC_MODE_ACTIVE(BOXKILLSWITCH)) {
++#endif
+             ENABLE_ARMING_FLAG(ARMING_DISABLED_BOXKILLSWITCH);
+         }
+         else {
