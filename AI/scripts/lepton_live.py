@@ -7,6 +7,7 @@ import argparse
 import base64
 import json
 import logging
+import signal
 import struct
 import sys
 import threading
@@ -620,7 +621,15 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _stop_like_ctrl_c(_signum, _frame) -> None:
+    raise KeyboardInterrupt
+
+
 def main() -> None:
+    # Closing the terminal (SIGHUP) or a kill (SIGTERM) otherwise ends the process without
+    # running the cleanup below, leaving annotated.mp4 unplayable and no summary.json.
+    signal.signal(signal.SIGTERM, _stop_like_ctrl_c)
+    signal.signal(signal.SIGHUP, _stop_like_ctrl_c)
     args = parse_args()
     if args.imgsz <= 0 or args.max_frames is not None and args.max_frames <= 0:
         raise SystemExit("--imgsz and --max-frames must be positive")
