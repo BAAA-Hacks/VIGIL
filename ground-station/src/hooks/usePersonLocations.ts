@@ -10,6 +10,7 @@ import {
   type Terrain,
 } from "../lib/geolocation";
 
+import { PersonMemory } from "../lib/personMemory";
 import { gridTerrain, type TerrainGrid } from "../lib/terrainGrid";
 import { isLocationConfig } from "../lib/locationConfig";
 import {
@@ -56,6 +57,7 @@ export function usePersonLocations(
   const received = useRef(0);
   const telemetryReceived = useRef(0);
   const calibrator = useRef(new CourseHeading());
+  const memory = useRef(new PersonMemory());
   useEffect(() => {
     let disposed = false;
     fetch("/api/offline-terrain")
@@ -176,6 +178,7 @@ export function usePersonLocations(
   }, [projectionConfig]);
   useEffect(() => {
     calibrator.current.reset();
+    memory.current.clear();
     lastTime.current = 0;
     setHistory([]);
     setFrames([]);
@@ -187,31 +190,32 @@ export function usePersonLocations(
   useEffect(() => {
     if (latest) ingestRef.current(latest);
   }, [latest]);
-  return useMemo(
-    () =>
-      locationSnapshot({
-        active,
-        frames,
-        detection,
-        config: projectionConfig,
-        history,
-        now,
-        frameReceived: received.current,
-        telemetryReceived: telemetryReceived.current,
-        fixedLocation: FIXED_PERSON_LOCATION,
-        terrain,
-        testing: testConfig !== null,
-        headingFor: (telemetry) => calibrator.current.heading(telemetry),
-      }),
-    [
+  return useMemo(() => {
+    const snapshot = locationSnapshot({
       active,
       frames,
       detection,
-      projectionConfig,
+      config: projectionConfig,
       history,
       now,
+      frameReceived: received.current,
+      telemetryReceived: telemetryReceived.current,
+      fixedLocation: FIXED_PERSON_LOCATION,
+      fixedSlot: (id) => memory.current.numberFor(id) - 1,
       terrain,
-      testConfig,
-    ],
-  );
+      testing: testConfig !== null,
+      headingFor: (telemetry) => calibrator.current.heading(telemetry),
+    });
+    // People stay on the map after leaving the view, at their last position and capture.
+    return { ...snapshot, pins: memory.current.update(snapshot.pins, now) };
+  }, [
+    active,
+    frames,
+    detection,
+    projectionConfig,
+    history,
+    now,
+    terrain,
+    testConfig,
+  ]);
 }

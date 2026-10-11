@@ -133,7 +133,13 @@ export class PersonMapController {
           : pin.elevationState === "loading"
             ? "Ground elevation looking up…"
             : "Ground elevation unavailable"
-        : `${pin.temp} · ${TEMPERATURE_STATUS[pin.status].label}`;
+        : `${pin.temp} · ${TEMPERATURE_STATUS[pin.status].label}${
+            pin.inView === false && pin.lastSeenAt !== undefined
+              ? ` · not in view, last seen ${new Date(pin.lastSeenAt).toLocaleTimeString()}`
+              : ""
+          }`;
+      // People who left the camera view stay at their last position, dimmed.
+      entry.marker.setOpacity(pin.inView === false ? 0.55 : 1);
       const title = `${pin.name}: ${pin.coords} · ${detail}`;
       entry.marker.getElement()?.setAttribute("title", title);
       entry.marker.getElement()?.setAttribute("aria-label", title);

@@ -42,6 +42,8 @@ export interface LocationSnapshotInput {
   headingFor: (telemetry: VehicleTelemetry) => number | null;
   /** Used instead of projection whenever there is no fresh telemetry with a valid GPS fix. */
   fixedLocation?: FixedLocation | null;
+  /** Stable spacing slot per person at the fixed location; defaults to the detection order. */
+  fixedSlot?: (personId: string) => number;
 }
 
 function personPin(
@@ -90,6 +92,7 @@ export function locationSnapshot({
   testing,
   headingFor,
   fixedLocation = null,
+  fixedSlot,
 }: LocationSnapshotInput) {
   const frame = detection
     ? (frames.find((f) => f.frame_id === detection.frame_id) ?? null)
@@ -127,11 +130,13 @@ export function locationSnapshot({
     current.detections
       .filter((d) => d.class === "person" || d.class === "human")
       .forEach((d, index) => {
+        const slot =
+          fixedSlot && d.track_id !== undefined ? fixedSlot(d.track_id) : index;
         const spot = offsetCoordinates(
           fixedLocation.latitude,
           fixedLocation.longitude,
           0,
-          index * FIXED_PIN_SPACING_M,
+          slot * FIXED_PIN_SPACING_M,
         );
         pins.push(
           personPin(
