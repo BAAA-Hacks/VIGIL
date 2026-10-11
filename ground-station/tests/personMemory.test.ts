@@ -85,3 +85,10 @@ test("the photo is the latest clear one, while the position stays live", () => {
   assert.equal(pins[0].latitude, 4);
   assert.equal(photoOf(memory.update([withPhoto("1", 5, 0.75)], 5)), "f5");
 });
+
+test("a detected person stays in view even when no pin could be placed this frame", () => {
+  const memory = new PersonMemory();
+  memory.update([pin("4", 1, 1)], 1);
+  assert.equal(memory.update([], 2, ["4"])[0].inView, true);
+  assert.equal(memory.update([], 3)[0].inView, false);
+});

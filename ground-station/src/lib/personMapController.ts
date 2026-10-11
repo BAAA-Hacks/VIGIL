@@ -52,6 +52,7 @@ export class PersonMapController {
   private home: Leaflet.Marker | null = null;
   private droneLastSeen = 0;
   private lastCourse: number | null = null;
+  private wasArmed = false;
   private fittedSource = "";
   private focusRevision = -1;
   private layer: MapView;
@@ -185,7 +186,13 @@ export class PersonMapController {
   /** Flight trail, home point and travel direction; the trail outlives brief link dropouts. */
   private updateTrack(drone: VehicleTelemetry) {
     const now = Date.now();
-    if (this.droneLastSeen && now - this.droneLastSeen > TRAIL_RESET_AFTER_MS) {
+    // A new take-off (or a long absence) starts a new trail.
+    const takeOff = drone.armed === true && !this.wasArmed;
+    this.wasArmed = drone.armed === true;
+    if (
+      takeOff ||
+      (this.droneLastSeen && now - this.droneLastSeen > TRAIL_RESET_AFTER_MS)
+    ) {
       this.trailPoints = [];
       this.lastCourse = null;
     }

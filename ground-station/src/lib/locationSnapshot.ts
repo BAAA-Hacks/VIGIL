@@ -181,9 +181,11 @@ export function locationSnapshot({
   const t = history.at(-1) ?? null;
   if (!t || !validFix(t)) return { ...base, message: "Waiting for GPS fix" };
   const heading =
-    t.yaw_deg !== null && config.headingOffsetDeg !== undefined
-      ? wrap(t.yaw_deg + config.headingOffsetDeg)
-      : headingFor(t);
+    t.yaw_deg !== null && t.yaw_reference === "north"
+      ? wrap(t.yaw_deg)
+      : t.yaw_deg !== null && config.headingOffsetDeg !== undefined
+        ? wrap(t.yaw_deg + config.headingOffsetDeg)
+        : headingFor(t);
   current.detections
     .filter((d) => d.class === "person" || d.class === "human")
     .forEach((d, index) => {

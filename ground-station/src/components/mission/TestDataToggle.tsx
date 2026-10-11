@@ -52,7 +52,9 @@ export function TestDataToggle({
           ? "Start telemetry"
           : source === "pocket"
             ? "Stop drone"
-            : "Stop test"}
+            : source === "replay-track"
+              ? "Stop flight replay"
+              : "Stop test"}
       </button>
     </div>
   );

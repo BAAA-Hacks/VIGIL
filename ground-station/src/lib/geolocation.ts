@@ -120,7 +120,8 @@ export function projectPerson(
     box[3] <= box[1]
   )
     return unavailable("Invalid detection box");
-  if (box[0] <= 0 || box[1] <= 0 || box[2] >= 1 || box[3] >= 0.99)
+  // Only the feet and sides matter for the ground point; a head cut off at the top does not.
+  if (box[0] <= 0 || box[2] >= 1 || box[3] >= 0.99)
     return unavailable("Ground contact clipped");
   if (
     ![config.startingCameraHeightM, config.mountDownDeg].every(

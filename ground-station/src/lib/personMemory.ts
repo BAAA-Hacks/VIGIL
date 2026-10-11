@@ -28,8 +28,13 @@ export class PersonMemory {
     return number;
   }
 
-  update(livePins: PinData[], now: number): PinData[] {
-    const inView = new Set<string>();
+  /** `detectedIds`: people detected in this frame, even where no pin could be placed. */
+  update(
+    livePins: PinData[],
+    now: number,
+    detectedIds?: Iterable<string>,
+  ): PinData[] {
+    const inView = new Set<string>(detectedIds ?? []);
     const untracked: PinData[] = [];
     for (const pin of livePins) {
       if (pin.id.includes(":")) {

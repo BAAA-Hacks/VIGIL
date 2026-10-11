@@ -99,6 +99,11 @@ def make_handler(records: list[tuple[np.ndarray, int]], args: argparse.Namespace
     # Replay control (GET/POST /control). Paused, the current frame is re-sent with fresh frame
     # IDs and timestamps, so the detector sees a still scene rather than a stalled camera.
     playback = {"paused": False, "index": 0}
+    # A reconstructed drone track saved next to a recording (make_replay_track.py) is offered to
+    # the website, which replays it in step with the frames via `session_frame`.
+    source = args.source.expanduser().resolve()
+    track = source.parent / "telemetry_track.json" if source.suffix.lower() == ".lep" else None
+    track = str(track) if track is not None and track.is_file() else None
 
     class Handler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
@@ -116,7 +121,8 @@ def make_handler(records: list[tuple[np.ndarray, int]], args: argparse.Namespace
 
         def control_state(self) -> dict:
             return {"replay": True, "paused": playback["paused"], "frame": playback["index"],
-                    "frames": len(records)}
+                    "frames": len(records), "session_frame": args.start + playback["index"],
+                    "track": track}
 
         def do_POST(self) -> None:
             if self.path.split("?")[0] != "/control":
